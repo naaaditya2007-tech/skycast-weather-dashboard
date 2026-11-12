@@ -45,7 +45,8 @@ from desktop.ui.panels import (
     clear_panel_cache
 )
 from desktop.ui.animations import WeatherAnimator
-from desktop.ui.other_cities import OtherCitiesPanel, PLACEHOLDER_OTHER_CITIES
+from desktop.ui.icons import get_weather_icon_image
+from desktop.ui.other_cities import OtherCitiesPanel, PLACEHOLDER_OTHER_CITIES, truncate_text
 
 class SkyCastMainWindow(tk.Tk):
     def __init__(self):
@@ -70,6 +71,7 @@ class SkyCastMainWindow(tk.Tk):
         self.current_theme = resolve_theme(2, is_day=1, temp_c=26.0) # Partly cloudy daytime theme default
         self.bg_pil_image: Optional[Image.Image] = None
         self.bg_photo: Optional[ImageTk.PhotoImage] = None
+        self._icon_refs: List[Any] = []
         self.resize_debounce_id: Optional[str] = None
 
         # Build Full Canvas
@@ -145,6 +147,7 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.delete("glass_panel")
         self.canvas.delete("ui_element")
         self.canvas.delete("bg_image")
+        self._icon_refs.clear()
 
         # 1. Update font sizes adaptively based on window width
         is_compact = (w < 950)
@@ -152,13 +155,40 @@ class SkyCastMainWindow(tk.Tk):
         self.fonts["temp_huge"].config(size=40 if is_compact else 52)
         self.fonts["icon_huge"].config(size=36 if is_compact else 48)
         self.fonts["h2"].config(size=12 if is_compact else 13)
+        self.fonts["body"].config(size=9 if is_compact else 10)
+        self.fonts["body_bold"].config(size=9 if is_compact else 10)
+        self.fonts["small"].config(size=8 if is_compact else 9)
+        self.fonts["small_bold"].config(size=8 if is_compact else 9)
 
-        # 1. Generate full-screen background
-        self.bg_pil_image = generate_procedural_background(
-            w, h,
-            self.current_theme["gradient_top"],
-            self.current_theme["gradient_bottom"]
-        )
+        # 1. Load background wallpaper photo if present in assets/backgrounds, else fallback to gradient
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        bg_dir = os.path.join(root_dir, "desktop", "assets", "backgrounds")
+        bg_candidates = ["partly_cloudy.jpg", "cloudy.jpg", "cloudy_sky.jpg", "overcast.jpg", "clear.jpg"]
+        loaded_bg = None
+        for cand in bg_candidates:
+            p = os.path.join(bg_dir, cand)
+            if os.path.isfile(p):
+                try:
+                    raw_img = Image.open(p).convert("RGB")
+                    img_w, img_h = raw_img.size
+                    scale = max(w / img_w, h / img_h)
+                    new_w, new_h = int(img_w * scale), int(img_h * scale)
+                    scaled = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    left = (new_w - w) // 2
+                    top = (new_h - h) // 2
+                    loaded_bg = scaled.crop((left, top, left + w, top + h))
+                    break
+                except Exception as ex:
+                    print(f"[SkyCast] Could not load background photo {cand}: {ex}")
+
+        if loaded_bg:
+            self.bg_pil_image = loaded_bg
+        else:
+            self.bg_pil_image = generate_procedural_background(
+                w, h,
+                self.current_theme["gradient_top"],
+                self.current_theme["gradient_bottom"]
+            )
         self.bg_photo = ImageTk.PhotoImage(self.bg_pil_image)
         self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw", tags="bg_image")
 
@@ -171,9 +201,9 @@ class SkyCastMainWindow(tk.Tk):
         top_y = 74 if is_compact else 78
         avail_h = h - top_y - pad
 
-        # Column widths matching reference screenshot (Left ~36%, Middle ~38%, Right ~26%)
+        # Column widths matching reference screenshot (Left ~37%, Middle ~38%, Right ~25%)
         avail_w = w - (pad * 2) - (gap * 2)
-        col1_w = int(avail_w * 0.35)
+        col1_w = int(avail_w * 0.37)
         col2_w = int(avail_w * 0.38)
         col3_w = avail_w - col1_w - col2_w
 
@@ -313,74 +343,86 @@ class SkyCastMainWindow(tk.Tk):
         )
         self.canvas.create_image(x, y, image=glass_photo, anchor="nw", tags="glass_panel")
 
-        pad_x = 18 if is_compact else 24
+        pad_x = 16 if is_compact else 22
 
-        # Location & Local Time
+        # 1. Location Pin Inline + City Name (Ellipsis truncation if long)
+        city_name = "Lagos, Nigeria"
+        full_city = f"📍 {city_name}"
+        avail_title_w = w - (pad_x * 2) - 8
+        display_city = truncate_text(self.fonts["city_title"], full_city, avail_title_w)
+
         self.canvas.create_text(
-            x + pad_x, y + (24 if is_compact else 30),
-            text="📍 Lagos, Nigeria",
+            x + pad_x, y + (22 if is_compact else 26),
+            text=display_city,
             font=self.fonts["city_title"],
-            fill=self.current_theme["text_primary"],
-            anchor="w",
-            tags="ui_element"
-        )
-        self.canvas.create_text(
-            x + pad_x, y + (48 if is_compact else 58),
-            text="8:15 AM",
-            font=self.fonts["body"],
-            fill=self.current_theme["text_secondary"],
+            fill="#FFFFFF",
             anchor="w",
             tags="ui_element"
         )
 
-        # Big Temperature & Condition
+        # 2. Local Time on its own line below
+        self.canvas.create_text(
+            x + pad_x, y + (46 if is_compact else 52),
+            text="8:15 AM",
+            font=self.fonts["body_bold"],
+            fill="#CBD5E1",
+            anchor="w",
+            tags="ui_element"
+        )
+
+        # 3. Big Temperature & Condition with measured gap
         temp_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
-        temp_y = y + (96 if is_compact else 115)
+        temp_str = f"26{temp_sym}"
+        temp_y = y + (84 if is_compact else 98)
         self.canvas.create_text(
             x + pad_x, temp_y,
-            text=f"26{temp_sym}",
+            text=temp_str,
             font=self.fonts["temp_huge"],
-            fill=self.current_theme["text_primary"],
+            fill="#FFFFFF",
             anchor="w",
             tags="ui_element"
         )
 
-        cond_x = x + (135 if is_compact else 185)
+        # Measure temperature width to place condition cleanly without overlap
+        temp_w = self.fonts["temp_huge"].measure(temp_str)
+        cond_x = x + pad_x + temp_w + (20 if is_compact else 26)
+
         self.canvas.create_text(
-            cond_x, temp_y - (10 if is_compact else 13),
+            cond_x, temp_y - (10 if is_compact else 12),
             text="Partly Sunny",
             font=self.fonts["h2"],
-            fill=self.current_theme["accent"],
+            fill=self.current_theme.get("accent", "#38BDF8"),
             anchor="w",
             tags="ui_element"
         )
         self.canvas.create_text(
             cond_x, temp_y + (12 if is_compact else 14),
             text=f"Feels like 28{temp_sym}",
-            font=self.fonts["body"],
-            fill=self.current_theme["text_secondary"],
+            font=self.fonts["body_bold"],
+            fill="#E2E8F0",
             anchor="w",
             tags="ui_element"
         )
 
-        # Weather Summary Sentence (from reference screenshot)
+        # 4. Summary Sentence directly under temperature block (no dead space, word-wrapped)
+        summary_y = temp_y + (30 if is_compact else 36)
         summary_text = (
-            "Light winds and a warm morning.\nSlight chance of rain in the evening."
-            if is_compact else
-            "Light winds and a warm morning. Slight chance of rain in the evening.\n"
+            "Light winds and a warm morning. Slight chance of rain in the evening. "
             "Humidity remains high with clear skies expected into Tuesday."
         )
+        avail_summary_w = w - (pad_x * 2) - 6
         self.canvas.create_text(
-            x + pad_x, y + h - (26 if is_compact else 35),
+            x + pad_x, summary_y,
             text=summary_text,
-            font=self.fonts["small"],
-            fill=self.current_theme["text_muted"],
-            anchor="w",
+            width=avail_summary_w,
+            font=self.fonts["body"],
+            fill="#F8FAFC",
+            anchor="nw",
             tags="ui_element"
         )
 
     # ========================================================================
-    # Middle Column: Forecast Tabs & Horizontal Mini-Cards
+    # Middle Column: Forecast Tabs & Horizontal Mini-Cards (5-6 cards)
     # ========================================================================
     def _draw_forecast_card(self, x: int, y: int, w: int, h: int, is_compact: bool = False):
         glass_photo = render_frosted_glass_panel(
@@ -395,8 +437,8 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.create_image(x, y, image=glass_photo, anchor="nw", tags="glass_panel")
 
         # Tabs Header: Today | Week | 16 Days
-        tab_y = y + (14 if is_compact else 18)
-        tab_x = x + (14 if is_compact else 20)
+        tab_y = y + (12 if is_compact else 16)
+        tab_x = x + (12 if is_compact else 18)
         tabs = [
             ("Today", 52 if is_compact else 65),
             ("Week", 48 if is_compact else 60),
@@ -411,15 +453,15 @@ class SkyCastMainWindow(tk.Tk):
                 tab_pill = render_frosted_glass_panel(
                     bg_image=self.bg_pil_image,
                     x=cur_x, y=tab_y,
-                    width=tw, height=26 if is_compact else 28,
-                    radius=13 if is_compact else 14,
+                    width=tw, height=24 if is_compact else 28,
+                    radius=12 if is_compact else 14,
                     blur_radius=10,
                     tint_opacity=0.35,
                     border_opacity=110
                 )
                 self.canvas.create_image(cur_x, tab_y, image=tab_pill, anchor="nw", tags="glass_panel")
                 self.canvas.create_text(
-                    cur_x + tw // 2, tab_y + (13 if is_compact else 14),
+                    cur_x + tw // 2, tab_y + (12 if is_compact else 14),
                     text=name,
                     font=self.fonts["small_bold"],
                     fill="#FFFFFF",
@@ -427,28 +469,31 @@ class SkyCastMainWindow(tk.Tk):
                 )
             else:
                 self.canvas.create_text(
-                    cur_x + tw // 2, tab_y + (13 if is_compact else 14),
+                    cur_x + tw // 2, tab_y + (12 if is_compact else 14),
                     text=name,
-                    font=self.fonts["small"],
-                    fill=self.current_theme["text_muted"],
+                    font=self.fonts["small_bold"],
+                    fill="#94A3B8",
                     tags="ui_element"
                 )
             cur_x += tw + tab_gap
 
-        # Row of Vertical Mini-Cards (9:00, 10:00, 11:00, 12:00 etc.)
-        mini_top = y + (52 if is_compact else 62)
-        mini_h = h - (64 if is_compact else 78)
-        
-        pad_m = 12 if is_compact else 18
-        gap_m = 6 if is_compact else 10
-        card_w = (w - (pad_m * 2) - (gap_m * 3)) // 4
+        # Show 5-6 cards per row with balanced vertical distribution
+        card_count = 5 if is_compact else 6
+        mini_top = y + (46 if is_compact else 54)
+        mini_h = h - (56 if is_compact else 66)
+
+        pad_m = 10 if is_compact else 14
+        gap_m = 6 if is_compact else 8
+        card_w = (w - (pad_m * 2) - (gap_m * (card_count - 1))) // card_count
 
         sample_hours = [
-            {"time": "9:00", "icon": "☀️", "temp": "26°C", "rain": "0%"},
-            {"time": "10:00", "icon": "⛅", "temp": "27°C", "rain": "5%"},
-            {"time": "11:00", "icon": "🌦️", "temp": "28°C", "rain": "25%"},
-            {"time": "12:00", "icon": "🌧️", "temp": "29°C", "rain": "60%"}
-        ]
+            {"time": "9:00", "icon": "sun", "temp": "26°C", "rain": "0%"},
+            {"time": "10:00", "icon": "partly", "temp": "27°C", "rain": "5%"},
+            {"time": "11:00", "icon": "rain", "temp": "28°C", "rain": "25%"},
+            {"time": "12:00", "icon": "rain", "temp": "29°C", "rain": "60%"},
+            {"time": "13:00", "icon": "thunder", "temp": "28°C", "rain": "80%"},
+            {"time": "14:00", "icon": "cloud", "temp": "27°C", "rain": "20%"}
+        ][:card_count]
 
         for i, h_item in enumerate(sample_hours):
             mx = x + pad_m + i * (card_w + gap_m)
@@ -458,34 +503,45 @@ class SkyCastMainWindow(tk.Tk):
                 width=card_w, height=mini_h,
                 radius=14 if is_compact else 16,
                 blur_radius=12,
-                tint_opacity=0.12,
-                border_opacity=60
+                tint_opacity=0.15,
+                border_opacity=70
             )
             self.canvas.create_image(mx, mini_top, image=m_photo, anchor="nw", tags="glass_panel")
 
-            # Time
+            # 1. Time (top)
             self.canvas.create_text(
-                mx + card_w // 2, mini_top + 16,
+                mx + card_w // 2, mini_top + (14 if is_compact else 18),
                 text=h_item["time"],
-                font=self.fonts["small"],
-                fill=self.current_theme["text_secondary"],
+                font=self.fonts["small_bold"],
+                fill="#CBD5E1",
                 tags="ui_element"
             )
 
-            # Icon
-            self.canvas.create_text(
-                mx + card_w // 2, mini_top + mini_h // 2 - 4,
-                text=h_item["icon"],
-                font=self.fonts["icon_mid"],
+            # 2. Soft Colored Vector Icon (upper middle)
+            icon_sz = min(max(card_w - 14, 22), 32 if is_compact else 36)
+            icon_img = get_weather_icon_image(h_item["icon"], size=icon_sz)
+            self._icon_refs.append(icon_img)
+            self.canvas.create_image(
+                mx + card_w // 2, mini_top + int(mini_h * 0.42),
+                image=icon_img,
                 tags="ui_element"
             )
 
-            # Temp
+            # 3. Rain probability badge (lower middle)
             self.canvas.create_text(
-                mx + card_w // 2, mini_top + mini_h - 18,
+                mx + card_w // 2, mini_top + int(mini_h * 0.68),
+                text=h_item["rain"],
+                font=self.fonts["small_bold"],
+                fill="#38BDF8",
+                tags="ui_element"
+            )
+
+            # 4. Temperature (bottom)
+            self.canvas.create_text(
+                mx + card_w // 2, mini_top + mini_h - (14 if is_compact else 18),
                 text=h_item["temp"],
                 font=self.fonts["body_bold"],
-                fill=self.current_theme["text_primary"],
+                fill="#FFFFFF",
                 tags="ui_element"
             )
 
@@ -495,61 +551,75 @@ class SkyCastMainWindow(tk.Tk):
     def _draw_overview_grid(self, x: int, y: int, w: int, h: int, is_compact: bool = False):
         # Header: 'Overview'
         self.canvas.create_text(
-            x + 5, y + 10,
+            x + 5, y + 8,
             text="Overview",
             font=self.fonts["h2"],
-            fill=self.current_theme["text_primary"],
+            fill="#FFFFFF",
             anchor="w",
             tags="ui_element"
         )
 
-        grid_y = y + (28 if is_compact else 32)
-        grid_h = h - (28 if is_compact else 32)
+        grid_y = y + (26 if is_compact else 30)
+        grid_h = h - (26 if is_compact else 30)
 
-        # 3 Primary Tiles from screenshot (Humidity, UV Index, Visibility)
+        # 3 Primary Tiles (Humidity, UV Index, Visibility)
         cols = 3
         gap = 8 if is_compact else 12
         tile_w = (w - gap * (cols - 1)) // cols
 
-        # Tile 1: Humidity (Drop icon, percentage, 'Amount of moisture in the air')
+        # Tile 1: Humidity
         t1_x = x
-        t1_photo = render_frosted_glass_panel(self.bg_pil_image, t1_x, grid_y, tile_w, grid_h, radius=16 if is_compact else 18, blur_radius=16)
+        t1_photo = render_frosted_glass_panel(self.bg_pil_image, t1_x, grid_y, tile_w, grid_h, radius=16, blur_radius=16)
         self.canvas.create_image(t1_x, grid_y, image=t1_photo, anchor="nw", tags="glass_panel")
 
-        self.canvas.create_text(t1_x + 14, grid_y + 18, text="Humidity", font=self.fonts["body"], fill=self.current_theme["text_secondary"], anchor="w", tags="ui_element")
-        self.canvas.create_text(t1_x + tile_w // 2, grid_y + grid_h // 2 - 6, text="💧", font=self.fonts["icon_huge"], tags="ui_element")
-        self.canvas.create_text(t1_x + 14, grid_y + grid_h - 18, text="67%", font=self.fonts["h2"], fill=self.current_theme["text_primary"], anchor="w", tags="ui_element")
-        if tile_w >= 180:
-            self.canvas.create_text(t1_x + tile_w - 14, grid_y + grid_h - 18, text="Moisture in the air", font=("Segoe UI", 7), fill=self.current_theme["text_muted"], anchor="e", tags="ui_element")
+        self.canvas.create_text(t1_x + 14, grid_y + 16, text="Humidity", font=self.fonts["body_bold"], fill="#E2E8F0", anchor="w", tags="ui_element")
+        
+        # Soft colored droplet
+        drop_sz = min(max(int(grid_h * 0.36), 34), 58)
+        drop_img = get_weather_icon_image("humidity", size=drop_sz)
+        self._icon_refs.append(drop_img)
+        self.canvas.create_image(t1_x + tile_w // 2, grid_y + grid_h // 2 - 4, image=drop_img, tags="ui_element")
 
-        # Tile 2: UV Index (Vertical gradient thermometer bar, '4 (Moderate)')
+        self.canvas.create_text(t1_x + 14, grid_y + grid_h - 15, text="67%", font=self.fonts["h2"], fill="#FFFFFF", anchor="w", tags="ui_element")
+        if tile_w >= 165:
+            self.canvas.create_text(t1_x + tile_w - 12, grid_y + grid_h - 15, text="Moisture in air", font=self.fonts["small_bold"], fill="#CBD5E1", anchor="e", tags="ui_element")
+
+        # Tile 2: UV Index
         t2_x = t1_x + tile_w + gap
-        t2_photo = render_frosted_glass_panel(self.bg_pil_image, t2_x, grid_y, tile_w, grid_h, radius=16 if is_compact else 18, blur_radius=16)
+        t2_photo = render_frosted_glass_panel(self.bg_pil_image, t2_x, grid_y, tile_w, grid_h, radius=16, blur_radius=16)
         self.canvas.create_image(t2_x, grid_y, image=t2_photo, anchor="nw", tags="glass_panel")
 
-        self.canvas.create_text(t2_x + 14, grid_y + 18, text="UV Index", font=self.fonts["body"], fill=self.current_theme["text_secondary"], anchor="w", tags="ui_element")
+        self.canvas.create_text(t2_x + 14, grid_y + 16, text="UV Index", font=self.fonts["body_bold"], fill="#E2E8F0", anchor="w", tags="ui_element")
 
-        # Vertical gradient bar
-        bar_x = t2_x + tile_w // 2 - 4
-        bar_y1 = grid_y + (30 if is_compact else 40)
-        bar_y2 = grid_y + grid_h - (36 if is_compact else 45)
+        # Vertical multi-color gradient bar
+        bar_x = t2_x + tile_w // 2 - 5
+        bar_y1 = grid_y + (30 if is_compact else 38)
+        bar_y2 = grid_y + grid_h - (34 if is_compact else 42)
+        bar_w = 10
         # Background bar
-        self.canvas.create_rectangle(bar_x, bar_y1, bar_x + 8, bar_y2, fill="#334155", outline="", tags="ui_element")
+        self.canvas.create_rectangle(bar_x, bar_y1, bar_x + bar_w, bar_y2, fill="#334155", outline="", tags="ui_element")
         # Gradient active indicator
-        self.canvas.create_rectangle(bar_x, bar_y1 + 22, bar_x + 8, bar_y2, fill="#F59E0B", outline="", tags="ui_element")
+        fill_y = bar_y1 + int((bar_y2 - bar_y1) * 0.45)
+        self.canvas.create_rectangle(bar_x, fill_y, bar_x + bar_w, bar_y2, fill="#F59E0B", outline="", tags="ui_element")
 
-        self.canvas.create_text(t2_x + tile_w // 2, grid_y + grid_h - 18, text="4 (Moderate)", font=self.fonts["h2"], fill=self.current_theme["text_primary"], tags="ui_element")
+        self.canvas.create_text(t2_x + tile_w // 2, grid_y + grid_h - 15, text="4 (Moderate)", font=self.fonts["h2"], fill="#FFFFFF", tags="ui_element")
 
-        # Tile 3: Visibility (Cloud/Haze icon, 67%, 'Haze is affecting visibility')
+        # Tile 3: Visibility
         t3_x = t2_x + tile_w + gap
-        t3_photo = render_frosted_glass_panel(self.bg_pil_image, t3_x, grid_y, tile_w, grid_h, radius=16 if is_compact else 18, blur_radius=16)
+        t3_photo = render_frosted_glass_panel(self.bg_pil_image, t3_x, grid_y, tile_w, grid_h, radius=16, blur_radius=16)
         self.canvas.create_image(t3_x, grid_y, image=t3_photo, anchor="nw", tags="glass_panel")
 
-        self.canvas.create_text(t3_x + 14, grid_y + 18, text="Visibility", font=self.fonts["body"], fill=self.current_theme["text_secondary"], anchor="w", tags="ui_element")
-        self.canvas.create_text(t3_x + tile_w // 2, grid_y + grid_h // 2 - 6, text="🌫️", font=self.fonts["icon_huge"], tags="ui_element")
-        self.canvas.create_text(t3_x + 14, grid_y + grid_h - 18, text="10 km", font=self.fonts["h2"], fill=self.current_theme["text_primary"], anchor="w", tags="ui_element")
-        if tile_w >= 180:
-            self.canvas.create_text(t3_x + tile_w - 14, grid_y + grid_h - 18, text="Haze is present", font=("Segoe UI", 7), fill=self.current_theme["text_muted"], anchor="e", tags="ui_element")
+        self.canvas.create_text(t3_x + 14, grid_y + 16, text="Visibility", font=self.fonts["body_bold"], fill="#E2E8F0", anchor="w", tags="ui_element")
+
+        # Soft colored mist/haze icon
+        vis_sz = min(max(int(grid_h * 0.36), 34), 58)
+        vis_img = get_weather_icon_image("visibility", size=vis_sz)
+        self._icon_refs.append(vis_img)
+        self.canvas.create_image(t3_x + tile_w // 2, grid_y + grid_h // 2 - 4, image=vis_img, tags="ui_element")
+
+        self.canvas.create_text(t3_x + 14, grid_y + grid_h - 15, text="10 km", font=self.fonts["h2"], fill="#FFFFFF", anchor="w", tags="ui_element")
+        if tile_w >= 165:
+            self.canvas.create_text(t3_x + tile_w - 12, grid_y + grid_h - 15, text="Haze present", font=self.fonts["small_bold"], fill="#CBD5E1", anchor="e", tags="ui_element")
 
     # ========================================================================
     # Handlers & Preview Mode

@@ -10,26 +10,44 @@ Displays saved favorite cities matching the design reference screenshot:
 import tkinter as tk
 from typing import Dict, Any, List, Callable, Optional
 from desktop.ui.panels import render_frosted_glass_panel
+from desktop.ui.icons import get_weather_icon_image
+
+def truncate_text(font: tk.font.Font, text: str, max_w: int) -> str:
+    """Safely truncate text with an ellipsis if it exceeds max_w in pixels."""
+    if font.measure(text) <= max_w:
+        return text
+    ell = "..."
+    ell_w = font.measure(ell)
+    avail = max_w - ell_w
+    if avail <= 0:
+        return ell
+    trimmed = text
+    while trimmed and font.measure(trimmed) > avail:
+        trimmed = trimmed[:-1]
+    return trimmed + ell
 
 # Placeholder initial cities from design reference
 PLACEHOLDER_OTHER_CITIES = [
-    {"country": "China", "city": "Beijing", "condition": "Cloudy", "icon": "🌧️", "temp": "12°C"},
-    {"country": "Japan", "city": "Tokyo", "condition": "Sunny", "icon": "🌤️", "temp": "18°C"},
-    {"country": "Brazil", "city": "Brasília", "condition": "Rainy", "icon": "☀️", "temp": "24°C"},
-    {"country": "Germany", "city": "Berlin", "condition": "Snowy", "icon": "🌨️", "temp": "3°C"},
-    {"country": "Australia", "city": "Canberra", "condition": "Windy", "icon": "🌤️", "temp": "19°C"}
+    {"country": "China", "city": "Beijing", "condition": "Cloudy", "icon": "cloud", "temp": "12°C"},
+    {"country": "Japan", "city": "Tokyo", "condition": "Sunny", "icon": "sun", "temp": "18°C"},
+    {"country": "Brazil", "city": "Brasília", "condition": "Rainy", "icon": "rain", "temp": "24°C"},
+    {"country": "Germany", "city": "Berlin", "condition": "Snowy", "icon": "snow", "temp": "3°C"},
+    {"country": "Australia", "city": "Canberra", "condition": "Windy", "icon": "wind", "temp": "19°C"}
 ]
 
 class OtherCitiesPanel:
     def __init__(self, canvas: tk.Canvas, on_select_city: Optional[Callable[[str], None]] = None):
         self.canvas = canvas
         self.on_select_city = on_select_city
+        self._icon_refs: List[Any] = []
 
     def draw(self, bg_image, x: int, y: int, width: int, height: int,
              cities_data: List[Dict[str, Any]],
              theme: Dict[str, Any],
              fonts: Dict[str, Any]):
         """Render the 'Other Cities' right-column stacked cards."""
+        self._icon_refs.clear()
+
         # Section Header
         self.canvas.create_text(
             x + 5, y + 14,
@@ -44,8 +62,8 @@ class OtherCitiesPanel:
         self.canvas.create_text(
             x + width - 5, y + 14,
             text="See all",
-            font=fonts["body"],
-            fill=theme["accent"],
+            font=fonts["body_bold"],
+            fill=theme.get("accent", "#38BDF8"),
             anchor="e",
             tags=("ui_element", see_all_tag)
         )
@@ -54,8 +72,8 @@ class OtherCitiesPanel:
         card_count = min(len(cards), 5)
         top_offset = y + 36
         available_h = height - 42
-        gap = 10
-        card_h = max((available_h - gap * (card_count - 1)) // card_count, 60)
+        gap = 8
+        card_h = max((available_h - gap * (card_count - 1)) // card_count, 54)
 
         for i in range(card_count):
             c = cards[i]
@@ -69,47 +87,58 @@ class OtherCitiesPanel:
                 radius=16,
                 blur_radius=14,
                 tint_opacity=theme.get("glass_tint_opacity", 0.18),
-                border_opacity=70
+                border_opacity=75
             )
             card_tag = f"other_city_card_{i}"
             self.canvas.create_image(x, cy, image=glass_photo, anchor="nw", tags=("glass_panel", card_tag))
 
-            # Country label (small, muted)
+            max_text_w = max(width - 65, 80)
+
+            # Country label (high contrast, crisp silver)
+            country_raw = c.get("country", "")
+            country_text = truncate_text(fonts["small_bold"], country_raw, max_text_w)
             self.canvas.create_text(
-                x + 18, cy + 18,
-                text=c.get("country", ""),
-                font=fonts["small"],
-                fill=theme["text_muted"],
+                x + 16, cy + 15,
+                text=country_text,
+                font=fonts["small_bold"],
+                fill="#CBD5E1",
                 anchor="w",
                 tags=("ui_element", card_tag)
             )
 
-            # City name (bold, medium)
+            # City name (bold, bright white)
+            city_raw = c.get("city") or c.get("name", "")
+            city_text = truncate_text(fonts["body_bold"], city_raw, max_text_w)
             self.canvas.create_text(
-                x + 18, cy + 36,
-                text=c.get("city") or c.get("name", ""),
+                x + 16, cy + 32,
+                text=city_text,
                 font=fonts["body_bold"],
-                fill=theme["text_primary"],
+                fill="#FFFFFF",
                 anchor="w",
                 tags=("ui_element", card_tag)
             )
 
-            # Condition text (small)
+            # Condition text (soft cyan / light text)
+            cond_raw = c.get("condition", "Clear")
+            cond_text = truncate_text(fonts["small"], cond_raw, max_text_w)
             self.canvas.create_text(
-                x + 18, cy + card_h - 14,
-                text=c.get("condition", "Clear"),
+                x + 16, cy + card_h - 13,
+                text=cond_text,
                 font=fonts["small"],
-                fill=theme["text_muted"],
+                fill="#93C5FD",
                 anchor="w",
                 tags=("ui_element", card_tag)
             )
 
-            # Weather Icon on right
-            self.canvas.create_text(
-                x + width - 24, cy + card_h // 2,
-                text=c.get("icon", "🌤️"),
-                font=fonts["icon_large"],
-                anchor="e",
+            # Weather Icon on right (soft colored Pillow vector icon)
+            icon_kind = c.get("icon") or cond_raw
+            icon_size = min(max(card_h - 18, 28), 38)
+            icon_img = get_weather_icon_image(icon_kind, size=icon_size)
+            self._icon_refs.append(icon_img)
+
+            self.canvas.create_image(
+                x + width - 16 - icon_size // 2, cy + card_h // 2,
+                image=icon_img,
                 tags=("ui_element", card_tag)
             )
 
@@ -118,4 +147,5 @@ class OtherCitiesPanel:
             if self.on_select_city:
                 self.canvas.tag_bind(card_tag, "<Button-1>", lambda e, name=city_name: self.on_select_city(name))
                 self.canvas.tag_bind(card_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+                self.canvas.tag_bind(card_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
                 self.canvas.tag_bind(card_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
