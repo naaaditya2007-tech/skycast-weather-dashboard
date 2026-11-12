@@ -57,6 +57,7 @@ from desktop.ui.panels import (
 )
 from desktop.ui.icons import get_weather_icon_image, get_icon_for_wmo
 from desktop.ui.other_cities import OtherCitiesPanel, truncate_text
+from desktop.ui.animations import WeatherAnimator
 
 class SkyCastMainWindow(tk.Tk):
     def __init__(self):
@@ -103,6 +104,19 @@ class SkyCastMainWindow(tk.Tk):
 
         # Initialize Fonts
         self._init_fonts()
+
+        # Dynamic Weather Particle Animation Engine (Stage 5)
+        self.animator = WeatherAnimator(self.canvas)
+
+        # Auto-Refresh & Timers
+        self.last_updated_time = time.time()
+        self.after(60000, self._tick_update_timer)
+
+        # F2 Preview & Multi-page Forecast State
+        self.f2_badge_text: Optional[str] = None
+        self.f2_badge_id: Optional[str] = None
+        self.sixteen_days_page: int = 0
+        self.is_fading: bool = False
 
         # Right Column Favorites Panel
         self.other_cities_panel = OtherCitiesPanel(
@@ -259,6 +273,8 @@ class SkyCastMainWindow(tk.Tk):
         self.api_client.search_cities_async(query, on_success, on_error)
 
     def _select_city(self, city_dict: Dict[str, Any]):
+        self.is_preview_mode = False
+        self.forced_wallpaper = None
         self._close_search_dropdown()
         self.current_city = city_dict
         self.storage.set_last_city(city_dict)
@@ -302,6 +318,9 @@ class SkyCastMainWindow(tk.Tk):
                 temp_c = curr.get("temperature_2m", 15.0)
 
                 self.current_theme = resolve_theme(wmo, is_day=is_day, temp_c=temp_c)
+                self.last_updated_time = time.time()
+                anim_name = self._get_anim_for_wmo(wmo, is_day)
+                self.animator.set_animation(anim_name)
                 clear_panel_cache()
                 self.is_loading = False
                 self._render_all_panels()
@@ -312,7 +331,12 @@ class SkyCastMainWindow(tk.Tk):
                 cached = self.storage.get_cache()
                 if cached:
                     self.weather_data = cached
-                    self.show_error_banner("Offline Mode — Displaying cached weather.")
+                    curr = cached.get("current", {})
+                    wmo = curr.get("weather_code", 0)
+                    is_day = curr.get("is_day", 1)
+                    self.current_theme = resolve_theme(wmo, is_day=is_day, temp_c=curr.get("temperature_2m", 15.0))
+                    self.animator.set_animation(self._get_anim_for_wmo(wmo, is_day))
+                    self.show_error_banner("⚠️ No connection — showing last saved data")
                 else:
                     self.show_error_banner(f"Could not load weather: {err}")
                 self.is_loading = False
@@ -322,6 +346,42 @@ class SkyCastMainWindow(tk.Tk):
         temp_u = self.units.get("temp", "celsius")
         wind_u = self.units.get("wind", "kmh")
         self.api_client.get_weather_async(lat, lon, temp_u, wind_u, on_success, on_error)
+
+    def _get_anim_for_wmo(self, wmo: int, is_day: int) -> str:
+        """Map Open-Meteo WMO weather code & daytime to active canvas particle animation."""
+        if wmo in (95, 96, 99):
+            return "thunderstorm"
+        elif wmo in (51, 53, 55, 56, 57):
+            return "drizzle"
+        elif wmo in (61, 63, 65, 66, 67, 80, 81, 82):
+            return "rain"
+        elif wmo in (71, 73, 75, 77, 85, 86):
+            return "snow"
+        elif wmo in (45, 48):
+            return "fog"
+        elif is_day == 0 and wmo in (0, 1):
+            return "stars"
+        else:
+            return "clouds"
+
+    def _tick_update_timer(self):
+        """1-minute interval ticker for 'Updated X min ago' and 10-minute auto-refresh."""
+        if not self.winfo_exists():
+            return
+        elapsed_mins = int((time.time() - self.last_updated_time) / 60)
+        if elapsed_mins >= 10:
+            self.refresh_weather()
+        else:
+            self._render_all_panels()
+        self.after(60000, self._tick_update_timer)
+
+    def refresh_weather(self):
+        """Trigger an instant manual refresh of live weather data and favorites."""
+        self.is_preview_mode = False
+        self.forced_wallpaper = None
+        self.last_updated_time = time.time()
+        self.load_weather_for_city(self.current_city)
+        self._load_favorites_weather()
 
     def _load_favorites_weather(self):
         """Asynchronously load live weather metrics for saved favorite cities."""
@@ -450,6 +510,7 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.delete("ui_element")
         self.canvas.delete("bg_image")
         self.canvas.delete("overlay")
+        self.canvas.delete("overlay_glass")
         self._icon_refs.clear()
 
         # Update typography scale based on width
@@ -463,7 +524,25 @@ class SkyCastMainWindow(tk.Tk):
 
         # 1. Background image (photo wallpaper if present, else procedural gradient)
         bg_dir = os.path.join(ROOT_DIR, "desktop", "assets", "backgrounds")
-        bg_candidates = [self.forced_wallpaper] if self.forced_wallpaper else ["partly_cloudy.jpg", "cloudy.jpg", "rain_night.jpg", "clear.jpg"]
+        curr = self.weather_data.get("current", {}) if self.weather_data else {}
+        wmo = curr.get("weather_code", 0)
+        is_day = curr.get("is_day", 1)
+
+        if self.forced_wallpaper:
+            bg_candidates = [self.forced_wallpaper]
+        elif wmo in (95, 96, 99):
+            bg_candidates = ["rain_night.jpg", "cloudy.jpg"]
+        elif wmo in (71, 73, 75, 77, 85, 86):
+            bg_candidates = ["snow.jpg", "cloudy.jpg"]
+        elif wmo in (45, 48):
+            bg_candidates = ["fog.jpg", "cloudy.jpg"]
+        elif is_day == 0:
+            bg_candidates = ["clear_night.jpg", "rain_night.jpg"]
+        elif wmo in (61, 63, 65, 66, 67, 80, 81, 82, 51, 53, 55):
+            bg_candidates = ["rain_night.jpg", "cloudy.jpg"]
+        else:
+            bg_candidates = ["partly_cloudy.jpg", "clear_day.jpg", "cloudy.jpg"]
+
         loaded_bg = None
         for cand in bg_candidates:
             if not cand:
@@ -479,8 +558,7 @@ class SkyCastMainWindow(tk.Tk):
                     left = (new_w - w) // 2
                     top = (new_h - h) // 2
                     cropped = scaled.crop((left, top, left + w, top + h))
-                    dark_full = Image.new("RGBA", (w, h), (15, 23, 42, int(255 * 0.15)))
-                    loaded_bg = Image.alpha_composite(cropped.convert("RGBA"), dark_full).convert("RGB")
+                    loaded_bg = self._apply_photo_tint(cropped)
                     break
                 except Exception:
                     pass
@@ -549,14 +627,23 @@ class SkyCastMainWindow(tk.Tk):
         if self.error_banner_text:
             self._draw_notification_banner(w)
 
-        # 10. Loading Overlay (if loading)
+        # 10. F2 Preview Badge HUD (if active)
+        if self.f2_badge_text:
+            self._draw_f2_badge(w)
+
+        # 11. Loading Overlay (if loading)
         if self.is_loading:
             self._draw_loading_overlay(w, h)
 
-        # Stacking order
+        # Stacking order: bg_image at bottom, then anim_particle, then glass panels, then ui_element, then overlay
         self.canvas.tag_lower("bg_image")
-        self.canvas.tag_raise("glass_panel", "bg_image")
-        self.canvas.tag_raise("ui_element", "glass_panel")
+        if self.canvas.find_withtag("anim_particle"):
+            self.canvas.tag_lower("anim_particle")
+            self.canvas.tag_raise("anim_particle", "bg_image")
+        if self.canvas.find_withtag("glass_panel"):
+            self.canvas.tag_raise("glass_panel")
+        self.canvas.tag_raise("ui_element")
+        self.canvas.tag_raise("overlay_glass")
         self.canvas.tag_raise("overlay")
 
     # ========================================================================
@@ -608,48 +695,79 @@ class SkyCastMainWindow(tk.Tk):
         entry_w = pill_w - 42
         self.canvas.create_window(pill_x + 32, pill_y + 6, window=self.search_entry, anchor="nw", width=entry_w, height=20, tags="ui_element")
 
-        # Unit Toggle Button (°C / °F)
-        gear_x = pad + bar_w - 28
+        # Settings Icon
+        gear_x = pad + bar_w - 24
         self._draw_shadow_text(gear_x, 38, "⚙", font=("Segoe UI", 16), fill="#FFFFFF", anchor="e")
 
-        unit_x = gear_x - 45
+        # Unit Toggle Button (°C / °F)
+        unit_x = gear_x - 38
         t_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
         unit_tag = "btn_unit_toggle"
         self._draw_shadow_text(unit_x, 38, f"[{t_sym}]", font=self.fonts["body_bold"], fill="#38BDF8", anchor="e", tags=("ui_element", unit_tag))
+
+        # Interactive Refresh Button [🔄]
+        refresh_x = unit_x - 42
+        refresh_tag = "btn_refresh"
+        self._draw_shadow_text(refresh_x, 38, "🔄", font=("Segoe UI", 13), fill="#38BDF8", anchor="e", tags=("ui_element", refresh_tag))
+
+        # "Last updated X min ago" label
+        elapsed_mins = int((time.time() - self.last_updated_time) / 60)
+        if elapsed_mins <= 0:
+            upd_str = "Updated just now"
+        elif elapsed_mins == 1:
+            upd_str = "Updated 1m ago"
+        else:
+            upd_str = f"Updated {elapsed_mins}m ago"
+
+        upd_x = refresh_x - 30
+        self._draw_shadow_text(upd_x, 38, upd_str, font=self.fonts["small_bold"], fill="#CBD5E1", anchor="e")
 
         self.canvas.tag_bind(unit_tag, "<Button-1>", lambda e: self._toggle_units())
         self.canvas.tag_bind(unit_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
         self.canvas.tag_bind(unit_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
+        self.canvas.tag_bind(refresh_tag, "<Button-1>", lambda e: self.refresh_weather())
+        self.canvas.tag_bind(refresh_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(refresh_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
     def _draw_search_dropdown(self, w: int):
-        """Floating autocomplete suggestions card."""
-        pill_w = min(max(int(w * 0.32), 220), 340)
-        pill_x = w // 2 - (pill_w // 2)
+        """Floating autocomplete suggestions card showing City, Region, Country."""
+        drop_w = min(max(int(w * 0.44), 380), 480)
+        drop_x = w // 2 - (drop_w // 2)
         drop_y = 58
         item_h = 36
         drop_h = len(self.search_suggestions) * item_h + 8
 
         drop_photo = render_frosted_glass_panel(
             bg_image=self.bg_pil_image,
-            x=pill_x, y=drop_y,
-            width=pill_w, height=drop_h,
+            x=drop_x, y=drop_y,
+            width=drop_w, height=drop_h,
             radius=16,
             blur_radius=20,
             tint_opacity=0.35,
             dark_overlay_opacity=0.60,
             border_opacity=130
         )
-        self.canvas.create_image(pill_x, drop_y, image=drop_photo, anchor="nw", tags=("glass_panel", "overlay"))
+        self.canvas.create_image(drop_x, drop_y, image=drop_photo, anchor="nw", tags="overlay_glass")
 
         for i, s in enumerate(self.search_suggestions):
             sy = drop_y + 4 + i * item_h
             tag = f"sug_item_{i}"
 
-            display_str = s.get("display_name") or f"{s.get('name')}, {s.get('country')}"
-            truncated = truncate_text(self.fonts["small_bold"], display_str, pill_w - 24)
+            c_name = s.get("name", "")
+            c_admin = s.get("admin1", "")
+            c_country = s.get("country", "")
+            if c_admin and c_country:
+                display_str = f"{c_name}, {c_admin}, {c_country}"
+            elif c_country:
+                display_str = f"{c_name}, {c_country}"
+            else:
+                display_str = c_name
+
+            truncated = truncate_text(self.fonts["small_bold"], display_str, drop_w - 32)
 
             self.canvas.create_text(
-                pill_x + 14, sy + item_h // 2,
+                drop_x + 14, sy + item_h // 2,
                 text=f"📍 {truncated}",
                 font=self.fonts["small_bold"],
                 fill="#FFFFFF",
@@ -752,7 +870,7 @@ class SkyCastMainWindow(tk.Tk):
         # Real condition and feels like
         wmo = curr.get("weather_code", 0)
         info = get_weather_info(wmo, curr.get("is_day", 1))
-        cond_raw = info.get("condition", "Clear Sky")
+        cond_raw = curr.get("forced_cond") or info.get("condition", "Clear Sky")
         feels_val = round(curr.get("apparent_temperature", temp_val)) if curr else temp_val
         feels_str = f"Feels like {feels_val}{temp_sym}"
 
@@ -798,6 +916,8 @@ class SkyCastMainWindow(tk.Tk):
 
     def _generate_weather_summary(self, curr: Dict[str, Any], daily: Dict[str, Any], cond_name: str) -> str:
         """Intelligently synthesizes a natural one-line atmospheric summary sentence."""
+        if curr.get("forced_summary"):
+            return curr["forced_summary"]
         if not curr:
             return "Clear skies and moderate temperatures expected throughout the day."
         wind = round(curr.get("wind_speed_10m", 10))
@@ -1038,14 +1158,56 @@ class SkyCastMainWindow(tk.Tk):
     def _draw_week_forecast(self, x: int, y: int, w: int, h: int, is_compact: bool, days_count: int = 7):
         """Displays daily forecast cards (7 days or extended 16 days)."""
         daily = self.weather_data.get("daily", {}) if self.weather_data else {}
-        d_times = daily.get("time", [])[:days_count]
-        d_maxs = daily.get("temperature_2m_max", [])[:days_count]
-        d_mins = daily.get("temperature_2m_min", [])[:days_count]
-        d_wmos = daily.get("weather_code", [])[:days_count]
-        d_rains = daily.get("precipitation_probability_max", [])[:days_count]
+        all_times = daily.get("time", [])[:days_count]
+        all_maxs = daily.get("temperature_2m_max", [])[:days_count]
+        all_mins = daily.get("temperature_2m_min", [])[:days_count]
+        all_wmos = daily.get("weather_code", [])[:days_count]
+        all_rains = daily.get("precipitation_probability_max", [])[:days_count]
 
-        # Limit displayed columns to fit comfortably
         visible_count = min(days_count, 6 if not is_compact else 5)
+        start_idx = 0
+
+        if days_count == 16 and len(all_times) > visible_count:
+            max_pages = (len(all_times) + visible_count - 1) // visible_count
+            cur_page = getattr(self, "sixteen_days_page", 0) % max_pages
+            start_idx = cur_page * visible_count
+            end_idx = min(start_idx + visible_count, len(all_times))
+
+            d_times = all_times[start_idx:end_idx]
+            d_maxs = all_maxs[start_idx:end_idx]
+            d_mins = all_mins[start_idx:end_idx]
+            d_wmos = all_wmos[start_idx:end_idx]
+            d_rains = all_rains[start_idx:end_idx]
+            visible_count = len(d_times)
+
+            nav_y = y + (12 if is_compact else 16)
+            next_tag = "btn_16d_next"
+            prev_tag = "btn_16d_prev"
+            self._draw_shadow_text(x + w - 18, nav_y + 14, "▶", self.fonts["small_bold"], fill="#38BDF8", anchor="e", tags=("ui_element", next_tag))
+            self._draw_shadow_text(x + w - 38, nav_y + 14, "◀", self.fonts["small_bold"], fill="#38BDF8", anchor="e", tags=("ui_element", prev_tag))
+            self._draw_shadow_text(x + w - 54, nav_y + 14, f"Page {cur_page+1}/{max_pages}", self.fonts["small"], fill="#94A3B8", anchor="e")
+
+            def next_page():
+                self.sixteen_days_page = (cur_page + 1) % max_pages
+                self._render_all_panels()
+
+            def prev_page():
+                self.sixteen_days_page = (cur_page - 1 + max_pages) % max_pages
+                self._render_all_panels()
+
+            self.canvas.tag_bind(next_tag, "<Button-1>", lambda e: next_page())
+            self.canvas.tag_bind(next_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+            self.canvas.tag_bind(next_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+            self.canvas.tag_bind(prev_tag, "<Button-1>", lambda e: prev_page())
+            self.canvas.tag_bind(prev_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+            self.canvas.tag_bind(prev_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+        else:
+            d_times = all_times[:visible_count]
+            d_maxs = all_maxs[:visible_count]
+            d_mins = all_mins[:visible_count]
+            d_wmos = all_wmos[:visible_count]
+            d_rains = all_rains[:visible_count]
         pad_m = 10 if is_compact else 14
         gap_m = 6 if is_compact else 8
         card_w = (w - (pad_m * 2) - (gap_m * (visible_count - 1))) // visible_count
@@ -1187,7 +1349,7 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.create_image(tx + tw - 16 - drop_sz // 2, ty + th // 2, image=drop_img, tags="ui_element")
 
         self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{hum_val}%", self.fonts["temp_huge"], fill="#FFFFFF", anchor="w")
-        self._draw_shadow_text(tx + 14, ty + th - 13, f"Dew point: {dew_pt}°", self.fonts["small_bold"], fill="#CBD5E1", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th - 13, f"Dew point: {dew_pt}°", self.fonts["small_bold"], fill="#38BDF8", anchor="w")
 
     def _draw_overview_tile_uv(self, tx, ty, tw, th, uv_val, is_compact):
         photo = render_frosted_glass_panel(self.bg_pil_image, tx, ty, tw, th, radius=16, blur_radius=16, tint_opacity=0.25, dark_overlay_opacity=0.35)
@@ -1255,7 +1417,7 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.create_image(tx + tw - 16 - baro_sz // 2, ty + th // 2, image=baro_img, tags="ui_element")
 
         self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{press_val} hPa", self.fonts["h2"], fill="#FFFFFF", anchor="w")
-        self._draw_shadow_text(tx + 14, ty + th - 13, f"Cloud cover: {clouds}%", self.fonts["small_bold"], fill="#CBD5E1", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th - 13, f"Cloud cover: {clouds}%", self.fonts["small_bold"], fill="#38BDF8", anchor="w")
 
     def _draw_overview_tile_aqi(self, tx, ty, tw, th, aqi_val, sunrise_iso, sunset_iso, is_compact):
         photo = render_frosted_glass_panel(self.bg_pil_image, tx, ty, tw, th, radius=16, blur_radius=16, tint_opacity=0.25, dark_overlay_opacity=0.35)
@@ -1290,28 +1452,38 @@ class SkyCastMainWindow(tk.Tk):
     # Loading Spinner Overlay & Error Notification Banner
     # ========================================================================
     def _draw_loading_overlay(self, w: int, h: int):
-        card_w = 260
-        card_h = 75
+        card_w = 280
+        card_h = 80
         cx = w // 2 - card_w // 2
         cy = h // 2 - card_h // 2
 
         photo = render_frosted_glass_panel(self.bg_pil_image, cx, cy, card_w, card_h, radius=18, blur_radius=22, tint_opacity=0.35, dark_overlay_opacity=0.55)
-        self.canvas.create_image(cx, cy, image=photo, anchor="nw", tags=("glass_panel", "overlay"))
+        self.canvas.create_image(cx, cy, image=photo, anchor="nw", tags="overlay_glass")
+
+        # Animated spinning arc indicator
+        spinner_angle = getattr(self, "_spinner_angle", 0)
+        self._spinner_angle = (spinner_angle + 30) % 360
+        self.canvas.create_arc(
+            cx + 20, cy + 24, cx + 54, cy + 58,
+            start=spinner_angle, extent=280,
+            style="arc", outline="#38BDF8", width=3,
+            tags="overlay"
+        )
 
         self._draw_shadow_text(
-            cx + card_w // 2, cy + 26,
-            "⚡ Updating SkyCast...",
+            cx + 68, cy + 28,
+            "Updating SkyCast...",
             self.fonts["body_bold"],
             fill="#FFFFFF",
-            anchor="center",
+            anchor="w",
             tags="overlay"
         )
         self._draw_shadow_text(
-            cx + card_w // 2, cy + 50,
+            cx + 68, cy + 50,
             "Fetching live Open-Meteo metrics",
             self.fonts["small"],
             fill="#38BDF8",
-            anchor="center",
+            anchor="w",
             tags="overlay"
         )
 
@@ -1325,11 +1497,15 @@ class SkyCastMainWindow(tk.Tk):
             self.bg_pil_image, bx, by, banner_w, bh,
             radius=16, blur_radius=18, tint_opacity=0.35, dark_overlay_opacity=0.60, border_opacity=130
         )
-        self.canvas.create_image(bx, by, image=banner_photo, anchor="nw", tags=("glass_panel", "overlay"))
+        self.canvas.create_image(bx, by, image=banner_photo, anchor="nw", tags="overlay_glass")
+
+        display_text = self.error_banner_text
+        if not display_text.startswith("⚠️"):
+            display_text = f"⚠️  {display_text}"
 
         self._draw_shadow_text(
             bx + banner_w // 2, by + bh // 2,
-            f"⚠️  {self.error_banner_text}",
+            display_text,
             self.fonts["small_bold"],
             fill="#FBBF24",
             anchor="center",
@@ -1337,17 +1513,207 @@ class SkyCastMainWindow(tk.Tk):
         )
         self.canvas.tag_bind("overlay", "<Button-1>", lambda e: self._clear_error_banner())
 
+    def show_f2_badge(self, text: str):
+        """Displays on-screen F2 preview mode badge HUD."""
+        self.f2_badge_text = text
+        if self.f2_badge_id:
+            self.after_cancel(self.f2_badge_id)
+        self.f2_badge_id = self.after(3500, self._clear_f2_badge)
+        self._render_all_panels()
+
+    def _clear_f2_badge(self):
+        self.f2_badge_text = None
+        self._render_all_panels()
+
+    def _draw_f2_badge(self, w: int):
+        card_w = min(w - 60, 480)
+        cx = w // 2 - card_w // 2
+        cy = 72
+        ch = 36
+        photo = render_frosted_glass_panel(
+            self.bg_pil_image, cx, cy, card_w, ch,
+            radius=18, blur_radius=16, tint_opacity=0.35, dark_overlay_opacity=0.60
+        )
+        self.canvas.create_image(cx, cy, image=photo, anchor="nw", tags="overlay_glass")
+        self._draw_shadow_text(
+            cx + card_w // 2, cy + ch // 2,
+            self.f2_badge_text,
+            self.fonts["small_bold"],
+            fill="#38BDF8",
+            anchor="center",
+            tags="overlay"
+        )
+
+    def _apply_photo_tint(self, base_img: Image.Image) -> Image.Image:
+        """Applies dynamic time-of-day x weather color tinting over background image."""
+        bw, bh = base_img.size
+        curr = self.weather_data.get("current", {}) if self.weather_data else {}
+        is_day = curr.get("is_day", 1)
+        wmo = curr.get("weather_code", 0)
+
+        if wmo in (95, 96, 99):
+            tint = (30, 27, 75, 75)       # Electric storm violet
+        elif wmo in (71, 73, 75, 77, 85, 86):
+            tint = (224, 242, 254, 45)     # Ice blue snow
+        elif wmo in (45, 48):
+            tint = (148, 163, 184, 80)     # Misty fog slate
+        elif is_day == 0:
+            tint = (15, 23, 42, 100)       # Deep obsidian night
+        else:
+            tint = (56, 189, 248, 25)      # Crisp sky daylight
+
+        overlay = Image.new("RGBA", (bw, bh), tint)
+        return Image.alpha_composite(base_img.convert("RGBA"), overlay).convert("RGB")
+
+    def _fade_to_background(self, target_img: Image.Image, duration_ms: int = 1200, steps: int = 12):
+        """Performs a smooth 1-1.5 second cross-fade between background photos."""
+        if self.bg_pil_image is None or self.is_fading:
+            self.bg_pil_image = target_img
+            clear_panel_cache()
+            self._render_all_panels()
+            return
+
+        self.is_fading = True
+        old_img = self.bg_pil_image.copy()
+        step_interval = duration_ms // steps
+
+        def step_fade(current_step=1):
+            if not self.winfo_exists():
+                return
+            alpha = current_step / steps
+            try:
+                blended = Image.blend(old_img, target_img, alpha)
+                self.bg_pil_image = blended
+                self.bg_photo = ImageTk.PhotoImage(blended)
+                self.canvas.itemconfig("bg_image", image=self.bg_photo)
+            except Exception:
+                pass
+
+            if current_step < steps:
+                self.after(step_interval, lambda: step_fade(current_step + 1))
+            else:
+                self.bg_pil_image = target_img
+                self.is_fading = False
+                clear_panel_cache()
+                self._render_all_panels()
+
+        step_fade(1)
+
     def _toggle_preview_mode(self):
-        """Hidden preview mode (F2) to cycle through weather x time phases."""
-        themes_cycle = [
-            ("clear", "day"), ("clear", "evening"), ("clear", "night"),
-            ("rain", "day"), ("thunderstorm", "night"), ("snow", "day"), ("fog", "dawn")
+        """F2 preview mode: cycles through 8 diverse atmospheric weather presets."""
+        presets = [
+            {
+                "label": "Rain — Day",
+                "wallpaper": "partly_cloudy.jpg",
+                "anim": "rain",
+                "wmo": 63,
+                "is_day": 1,
+                "temp": 14,
+                "apparent": 13,
+                "cond": "Moderate Rain",
+                "summary": "Persistent rain showers with overcast skies. Keep an umbrella handy."
+            },
+            {
+                "label": "Thunderstorm — Night",
+                "wallpaper": "rain_night.jpg",
+                "anim": "thunderstorm",
+                "wmo": 95,
+                "is_day": 0,
+                "temp": 17,
+                "apparent": 16,
+                "cond": "Thunderstorm",
+                "summary": "Active lightning strikes and heavy downpours throughout the night."
+            },
+            {
+                "label": "Snow — Day",
+                "wallpaper": "snow.jpg",
+                "anim": "snow",
+                "wmo": 73,
+                "is_day": 1,
+                "temp": -2,
+                "apparent": -6,
+                "cond": "Snow Showers",
+                "summary": "Crisp winter flurries with drifting snow and sub-zero temperatures."
+            },
+            {
+                "label": "Clear — Night",
+                "wallpaper": "clear_night.jpg",
+                "anim": "stars",
+                "wmo": 0,
+                "is_day": 0,
+                "temp": 8,
+                "apparent": 7,
+                "cond": "Clear Sky",
+                "summary": "Brilliant starry sky with calm winds and cool nighttime temperatures."
+            },
+            {
+                "label": "Fog — Dawn",
+                "wallpaper": "fog.jpg",
+                "anim": "fog",
+                "wmo": 45,
+                "is_day": 1,
+                "temp": 6,
+                "apparent": 5,
+                "cond": "Dense Fog",
+                "summary": "Misty morning haze with low visibility. Gentle warming expected later."
+            },
+            {
+                "label": "Clear — Day",
+                "wallpaper": "clear_day.jpg",
+                "anim": "clouds",
+                "wmo": 0,
+                "is_day": 1,
+                "temp": 22,
+                "apparent": 21,
+                "cond": "Sunny & Clear",
+                "summary": "Bright sunny afternoon with gentle breeze and perfect outdoor weather."
+            },
+            {
+                "label": "Drizzle — Day",
+                "wallpaper": "cloudy.jpg",
+                "anim": "drizzle",
+                "wmo": 51,
+                "is_day": 1,
+                "temp": 12,
+                "apparent": 11,
+                "cond": "Light Drizzle",
+                "summary": "Fine misty drizzle under cool overcast cloud layers."
+            },
+            {
+                "label": "Overcast — Evening",
+                "wallpaper": "cloudy.jpg",
+                "anim": "clouds",
+                "wmo": 3,
+                "is_day": 0,
+                "temp": 11,
+                "apparent": 10,
+                "cond": "Overcast Evening",
+                "summary": "Dense cloud cover with rich sunset hues and light evening breeze."
+            }
         ]
+
         curr_idx = getattr(self, "_preview_idx", 0)
-        w_type, phase = themes_cycle[curr_idx % len(themes_cycle)]
+        p = presets[curr_idx % len(presets)]
         self._preview_idx = curr_idx + 1
 
-        self.current_theme = resolve_theme(0, forced_theme=f"{w_type}-{phase}")
+        self.is_preview_mode = True
+        self.show_f2_badge(f"🎮 [F2 Preview]: {p['label']} (Press F2 to cycle)")
+        self.forced_wallpaper = p["wallpaper"]
+        self.current_theme = resolve_theme(p["wmo"], is_day=p["is_day"], temp_c=float(p["temp"]))
+        self.animator.set_animation(p["anim"])
+
+        if not self.weather_data:
+            self.weather_data = {}
+        if "current" not in self.weather_data:
+            self.weather_data["current"] = {}
+        curr = self.weather_data["current"]
+        curr["temperature_2m"] = p["temp"]
+        curr["apparent_temperature"] = p["apparent"]
+        curr["weather_code"] = p["wmo"]
+        curr["is_day"] = p["is_day"]
+        curr["forced_cond"] = p["cond"]
+        curr["forced_summary"] = p["summary"]
+
         clear_panel_cache()
         self._render_all_panels()
 
