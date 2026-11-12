@@ -12,6 +12,26 @@ from PIL import Image, ImageDraw, ImageTk
 
 _ICON_CACHE: Dict[Tuple[str, int], ImageTk.PhotoImage] = {}
 
+def get_icon_for_wmo(code: int, is_day: int = 1) -> str:
+    """Map WMO weather code to icon name."""
+    if code == 0:
+        return "sun" if is_day else "clear_night"
+    elif code in (1, 2):
+        return "partly" if is_day else "partly_night"
+    elif code == 3:
+        return "cloud"
+    elif code in (45, 48):
+        return "fog"
+    elif code in (51, 53, 55, 56, 57):
+        return "drizzle"
+    elif code in (61, 63, 65, 66, 67, 80, 81, 82):
+        return "rain"
+    elif code in (71, 73, 75, 77, 85, 86):
+        return "snow"
+    elif code in (95, 96, 99):
+        return "thunder"
+    return "cloud"
+
 def clear_icon_cache():
     """Clear cached icon PhotoImages (e.g. between Tk root instances)."""
     _ICON_CACHE.clear()
@@ -152,6 +172,70 @@ def get_weather_icon_image(icon_name: str, size: int = 32) -> ImageTk.PhotoImage
             draw.line([(int(w * x1f) + so, yl + so), (int(w * x2f) + so, yl + so)], fill=shadow_col, width=sw)
         for yl, (x1f, x2f) in zip(y_lines, widths):
             draw.line([(int(w * x1f), yl), (int(w * x2f), yl)], fill=fore_col, width=fw)
+
+    elif "barometer" in name or "pressure" in name:
+        # Pressure Gauge / Barometer Dial
+        cx, cy = w // 2, w // 2
+        r = int(w * 0.38)
+        so = 1 * scale
+        # Outer dial ring
+        draw.ellipse([cx - r + so, cy - r + so, cx + r + so, cy + r + so], outline=(15, 23, 42, 200), width=max(3 * scale, 3))
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(255, 255, 255, 255), width=max(2 * scale, 2))
+        # Needle pointing up-right
+        draw.line([(cx + so, cy + so), (int(cx + r * 0.6) + so, int(cy - r * 0.6) + so)], fill=(15, 23, 42, 200), width=max(3 * scale, 3))
+        draw.line([(cx, cy), (int(cx + r * 0.6), int(cy - r * 0.6))], fill=(245, 158, 11, 255), width=max(2 * scale, 2))
+        # Center pivot
+        draw.ellipse([cx - 3 * scale, cy - 3 * scale, cx + 3 * scale, cy + 3 * scale], fill=(255, 255, 255, 255))
+
+    elif "compass" in name or "wind_dir" in name:
+        # Wind Direction Compass
+        cx, cy = w // 2, w // 2
+        r = int(w * 0.38)
+        so = 1 * scale
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(255, 255, 255, 180), width=max(2 * scale, 2))
+        # North Pointer
+        pts_n = [(cx, cy - r + 3 * scale), (cx - 4 * scale, cy), (cx + 4 * scale, cy)]
+        draw.polygon(pts_n, fill=(239, 68, 68, 255))
+        # South Pointer
+        pts_s = [(cx, cy + r - 3 * scale), (cx - 4 * scale, cy), (cx + 4 * scale, cy)]
+        draw.polygon(pts_s, fill=(226, 232, 240, 255))
+
+    elif "sunrise" in name or "sunset" in name:
+        # Solar Horizon
+        cx, cy = w // 2, int(w * 0.58)
+        r = int(w * 0.28)
+        so = 1 * scale
+        # Horizon line
+        draw.line([(int(w * 0.15), cy + so), (int(w * 0.85), cy + so)], fill=(15, 23, 42, 200), width=max(3 * scale, 3))
+        draw.line([(int(w * 0.15), cy), (int(w * 0.85), cy)], fill=(255, 255, 255, 255), width=max(2 * scale, 2))
+        # Half Sun rising
+        draw.pieslice([cx - r, cy - r, cx + r, cy + r], start=180, end=360, fill=(251, 191, 36, 255))
+
+    elif "aqi" in name or "leaf" in name:
+        # Eco Air Quality Leaf / Shield
+        cx, cy = w // 2, w // 2
+        r = int(w * 0.32)
+        so = 1 * scale
+        # Soft leaf / shield shape
+        pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
+        draw.polygon([(p[0] + so, p[1] + so) for p in pts], fill=(15, 23, 42, 180))
+        draw.polygon(pts, fill=(52, 211, 153, 255))
+        draw.line([(cx, cy - r), (cx, cy + r)], fill=(255, 255, 255, 200), width=scale)
+
+    elif "star" in name:
+        # Golden 5-Point Star
+        cx, cy = w // 2, w // 2
+        r_out = int(w * 0.40)
+        r_in = int(w * 0.18)
+        import math
+        pts = []
+        for i in range(10):
+            r = r_out if i % 2 == 0 else r_in
+            ang = math.radians(-90 + i * 36)
+            pts.append((cx + int(r * math.cos(ang)), cy + int(r * math.sin(ang))))
+        so = 1 * scale
+        draw.polygon([(p[0] + so, p[1] + so) for p in pts], fill=(15, 23, 42, 200))
+        draw.polygon(pts, fill=(251, 191, 36, 255), outline=(254, 240, 138, 255))
 
     else:
         # Generic cloud

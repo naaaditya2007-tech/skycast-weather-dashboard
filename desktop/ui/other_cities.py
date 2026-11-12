@@ -36,16 +36,22 @@ PLACEHOLDER_OTHER_CITIES = [
 ]
 
 class OtherCitiesPanel:
-    def __init__(self, canvas: tk.Canvas, on_select_city: Optional[Callable[[str], None]] = None):
+    def __init__(self, canvas: tk.Canvas,
+                 on_select_city: Optional[Callable[[Dict[str, Any]], None]] = None,
+                 on_remove_city: Optional[Callable[[str], None]] = None,
+                 on_add_current_city: Optional[Callable[[], None]] = None):
         self.canvas = canvas
         self.on_select_city = on_select_city
+        self.on_remove_city = on_remove_city
+        self.on_add_current_city = on_add_current_city
         self._icon_refs: List[Any] = []
 
     def draw(self, bg_image, x: int, y: int, width: int, height: int,
              cities_data: List[Dict[str, Any]],
              theme: Dict[str, Any],
-             fonts: Dict[str, Any]):
-        """Render the 'Other Cities' right-column stacked cards."""
+             fonts: Dict[str, Any],
+             is_current_favorite: bool = False):
+        """Render the 'Other Cities' right-column stacked cards with live data."""
         self._icon_refs.clear()
 
         # Section Header
@@ -53,30 +59,73 @@ class OtherCitiesPanel:
             x + 5, y + 14,
             text="Other Cities",
             font=fonts["h2"],
-            fill=theme["text_primary"],
+            fill="#FFFFFF",
             anchor="w",
             tags="ui_element"
         )
 
-        see_all_tag = "btn_see_all"
+        # Header Action Button: Add/Favorite Toggle
+        btn_text = "★ Saved" if is_current_favorite else "+ Add Fav"
+        btn_tag = "btn_add_fav"
         self.canvas.create_text(
-            x + width - 5, y + 14,
-            text="See all",
-            font=fonts["body_bold"],
-            fill=theme.get("accent", "#38BDF8"),
+            x + width - 6, y + 14,
+            text=btn_text,
+            font=fonts["small_bold"],
+            fill="#FBBF24" if is_current_favorite else "#38BDF8",
             anchor="e",
-            tags=("ui_element", see_all_tag)
+            tags=("ui_element", btn_tag)
         )
+        if self.on_add_current_city:
+            self.canvas.tag_bind(btn_tag, "<Button-1>", lambda e: self.on_add_current_city())
+            self.canvas.tag_bind(btn_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+            self.canvas.tag_bind(btn_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
-        cards = cities_data if cities_data else PLACEHOLDER_OTHER_CITIES
-        card_count = min(len(cards), 5)
+        # Empty State
+        if not cities_data:
+            empty_h = 160
+            glass_photo = render_frosted_glass_panel(
+                bg_image=bg_image,
+                x=x, y=y + 40,
+                width=width, height=empty_h,
+                radius=18,
+                blur_radius=18,
+                tint_opacity=0.25,
+                dark_overlay_opacity=0.35,
+                border_opacity=110
+            )
+            self.canvas.create_image(x, y + 40, image=glass_photo, anchor="nw", tags="glass_panel")
+
+            star_img = get_weather_icon_image("star", size=36)
+            self._icon_refs.append(star_img)
+            self.canvas.create_image(x + width // 2, y + 78, image=star_img, tags="ui_element")
+
+            self.canvas.create_text(
+                x + width // 2, y + 118,
+                text="No Saved Cities",
+                font=fonts["body_bold"],
+                fill="#FFFFFF",
+                anchor="center",
+                tags="ui_element"
+            )
+            self.canvas.create_text(
+                x + width // 2, y + 142,
+                text="Click '+ Add Fav' to pin\nfavorite cities here.",
+                font=fonts["small"],
+                fill="#CBD5E1",
+                anchor="center",
+                justify="center",
+                tags="ui_element"
+            )
+            return
+
+        cards = cities_data[:5]
+        card_count = len(cards)
         top_offset = y + 36
         available_h = height - 42
         gap = 8
         card_h = max((available_h - gap * (card_count - 1)) // card_count, 54)
 
-        for i in range(card_count):
-            c = cards[i]
+        for i, c in enumerate(cards):
             cy = top_offset + i * (card_h + gap)
 
             # Frosted Glass Card
@@ -85,37 +134,40 @@ class OtherCitiesPanel:
                 x=x, y=cy,
                 width=width, height=card_h,
                 radius=16,
-                blur_radius=14,
-                tint_opacity=theme.get("glass_tint_opacity", 0.18),
-                border_opacity=75
+                blur_radius=18,
+                tint_opacity=0.25,
+                dark_overlay_opacity=0.35,
+                border_opacity=110
             )
             card_tag = f"other_city_card_{i}"
             self.canvas.create_image(x, cy, image=glass_photo, anchor="nw", tags=("glass_panel", card_tag))
 
-            max_text_w = max(width - 65, 80)
+            max_text_w = max(width - 70, 80)
 
-            # Country label (high contrast, crisp light silver with subtle shadow)
+            # Country label (top left)
             country_raw = c.get("country", "")
             country_text = truncate_text(fonts["small_bold"], country_raw, max_text_w)
-            self.canvas.create_text(x + 17, cy + 16, text=country_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
-            self.canvas.create_text(x + 16, cy + 15, text=country_text, font=fonts["small_bold"], fill="#F1F5F9", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 17, cy + 15, text=country_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + 14, text=country_text, font=fonts["small_bold"], fill="#CBD5E1", anchor="w", tags=("ui_element", card_tag))
 
-            # City name (bold, bright white with subtle shadow)
-            city_raw = c.get("city") or c.get("name", "")
-            city_text = truncate_text(fonts["body_bold"], city_raw, max_text_w)
-            self.canvas.create_text(x + 17, cy + 33, text=city_text, font=fonts["body_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
-            self.canvas.create_text(x + 16, cy + 32, text=city_text, font=fonts["body_bold"], fill="#FFFFFF", anchor="w", tags=("ui_element", card_tag))
+            # City name (middle left)
+            city_name = c.get("name") or c.get("city", "")
+            temp_str = c.get("temp", "")
+            display_title = f"{city_name}  {temp_str}".strip() if temp_str else city_name
+            city_text = truncate_text(fonts["body_bold"], display_title, max_text_w)
+            self.canvas.create_text(x + 17, cy + 32, text=city_text, font=fonts["body_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + 31, text=city_text, font=fonts["body_bold"], fill="#FFFFFF", anchor="w", tags=("ui_element", card_tag))
 
-            # Condition text (light grey with subtle shadow, replacing pale blue)
+            # Condition text (bottom left)
             cond_raw = c.get("condition", "Clear")
             cond_text = truncate_text(fonts["small_bold"], cond_raw, max_text_w)
             self.canvas.create_text(x + 17, cy + card_h - 12, text=cond_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
             self.canvas.create_text(x + 16, cy + card_h - 13, text=cond_text, font=fonts["small_bold"], fill="#E2E8F0", anchor="w", tags=("ui_element", card_tag))
 
-            # Weather Icon on right (soft colored Pillow vector icon)
+            # Weather Icon on right
             icon_kind = c.get("icon") or cond_raw
             icon_size = min(max(card_h - 18, 28), 38)
-            icon_img = get_weather_icon_image(icon_kind, size=icon_size)
+            icon_img = get_weather_icon_image(str(icon_kind), size=icon_size)
             self._icon_refs.append(icon_img)
 
             self.canvas.create_image(
@@ -124,10 +176,25 @@ class OtherCitiesPanel:
                 tags=("ui_element", card_tag)
             )
 
-            # Click binding
-            city_name = c.get("city") or c.get("name", "")
+            # Remove '✕' button on top-right of card
+            remove_tag = f"remove_fav_{i}"
+            self.canvas.create_text(
+                x + width - 12, cy + 14,
+                text="✕",
+                font=("Segoe UI", 9, "bold"),
+                fill="#94A3B8",
+                anchor="e",
+                tags=("ui_element", remove_tag)
+            )
+
+            # Bindings: Click card to load weather; Click ✕ to remove
             if self.on_select_city:
-                self.canvas.tag_bind(card_tag, "<Button-1>", lambda e, name=city_name: self.on_select_city(name))
+                self.canvas.tag_bind(card_tag, "<Button-1>", lambda e, city_dict=c: self.on_select_city(city_dict))
                 self.canvas.tag_bind(card_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
                 self.canvas.tag_bind(card_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+            if self.on_remove_city:
+                self.canvas.tag_bind(remove_tag, "<Button-1>", lambda e, name=city_name: self.on_remove_city(name))
+                self.canvas.tag_bind(remove_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+                self.canvas.tag_bind(remove_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
                 self.canvas.tag_bind(card_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
