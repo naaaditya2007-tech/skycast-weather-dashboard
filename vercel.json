@@ -1,9 +1,8 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api/weather", "destination": "/web/api/weather.py" },
-    { "source": "/api/geocode", "destination": "/web/api/geocode.py" },
-    { "source": "/((?!api/|web/).*)", "destination": "/web/$1" }
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/((?!api/).*)", "destination": "/web/$1" }
   ],
   "headers": [
     {

@@ -126,7 +126,7 @@ python -m http.server 3000 --directory web
 
 ## 🌐 Live Production Deployment
 
-- **Vercel Production URL**: *[Provided below upon deployment confirmation]*
+- **Vercel Production URL**: [https://web-mocha-ten-79.vercel.app](https://web-mocha-ten-79.vercel.app)
 - **GitHub Repository**: [https://github.com/naaaditya2007-tech/skycast-weather-dashboard](https://github.com/naaaditya2007-tech/skycast-weather-dashboard)
 
 ---
