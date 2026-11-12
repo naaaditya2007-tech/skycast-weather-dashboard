@@ -1,39 +1,47 @@
 """
-Lightweight Tkinter Canvas Animation Engine for SkyCast Desktop.
-Provides particle animations for Rain, Snow, Drifting Clouds, Sunbeams, and Thunderstorm Flashes.
+SkyCast Desktop UI — Particle Animation Engine
+----------------------------------------------
+Renders dynamic atmospheric particle effects directly on the Tkinter Canvas:
+- Rain (angled raindrops with variable velocity)
+- Snow (swirling snowflakes with sinusoidal drift)
+- Drifting Clouds (soft layered puffs drifting across horizon)
+- Thunderstorms (heavy rain + intermittent canvas lightning flash)
+- Sunbeams (soft ambient dust/sun motes)
+
+Runs via non-blocking `canvas.after(33)` (~30 FPS).
 """
 
 import random
 import math
 import tkinter as tk
+from typing import List, Dict, Any, Optional
 
 class WeatherAnimator:
     def __init__(self, canvas: tk.Canvas):
         self.canvas = canvas
         self.animation_type = "none"
         self.is_running = False
-        self.particles = []
-        self.clouds = []
+        self.particles: List[Dict[str, Any]] = []
+        self.clouds: List[Dict[str, Any]] = []
         self.lightning_flash = 0
-        self._after_id = None
+        self._after_id: Optional[str] = None
 
     def set_animation(self, anim_type: str):
-        """Switch active animation type (rain, snow, clouds, thunderstorm, sunbeam, none)."""
-        if self.animation_type == anim_type:
+        """Switch active animation mode."""
+        if self.animation_type == anim_type and self.is_running:
             return
-        
+
         self.clear()
         self.animation_type = anim_type
-        
+
         w = max(self.canvas.winfo_width(), 1000)
         h = max(self.canvas.winfo_height(), 700)
-        
+
         if anim_type == "rain":
-            # Rain drops
             self.particles = [
                 {
-                    "x": random.randint(0, w),
-                    "y": random.randint(-100, h),
+                    "x": random.randint(0, w + 100),
+                    "y": random.randint(-80, h),
                     "len": random.randint(12, 22),
                     "speed": random.uniform(10, 18),
                     "width": random.choice([1, 1, 2]),
@@ -42,15 +50,14 @@ class WeatherAnimator:
                 for _ in range(85)
             ]
         elif anim_type == "snow":
-            # Snowflakes
             self.particles = [
                 {
                     "x": random.randint(0, w),
-                    "y": random.randint(-50, h),
-                    "radius": random.uniform(1.8, 4.2),
-                    "speed": random.uniform(1.2, 3.0),
+                    "y": random.randint(-40, h),
+                    "radius": random.uniform(1.8, 4.0),
+                    "speed": random.uniform(1.2, 2.8),
                     "drift_freq": random.uniform(0.02, 0.05),
-                    "drift_amp": random.uniform(15, 30),
+                    "drift_amp": random.uniform(15, 25),
                     "base_x": random.randint(0, w),
                     "angle": random.uniform(0, math.pi * 2),
                     "color": random.choice(["#FFFFFF", "#F1F5F9", "#E2E8F0"])
@@ -58,11 +65,10 @@ class WeatherAnimator:
                 for _ in range(65)
             ]
         elif anim_type == "thunderstorm":
-            # Fast heavy rain + lightning counter
             self.particles = [
                 {
-                    "x": random.randint(0, w),
-                    "y": random.randint(-100, h),
+                    "x": random.randint(0, w + 100),
+                    "y": random.randint(-80, h),
                     "len": random.randint(16, 26),
                     "speed": random.uniform(14, 22),
                     "width": 2,
@@ -72,7 +78,6 @@ class WeatherAnimator:
             ]
             self.lightning_flash = 0
         elif anim_type == "clouds":
-            # Drifting soft cloud shapes
             self.clouds = [
                 {
                     "x": random.randint(-200, w),
@@ -83,7 +88,6 @@ class WeatherAnimator:
                 for _ in range(5)
             ]
         elif anim_type == "sunbeam":
-            # Gentle ambient dust/sun motes
             self.particles = [
                 {
                     "x": random.randint(0, w),
@@ -101,7 +105,7 @@ class WeatherAnimator:
             self._tick()
 
     def clear(self):
-        """Remove all particle drawings from canvas."""
+        """Remove existing particle tags from Canvas."""
         self.canvas.delete("anim_particle")
         self.canvas.delete("lightning_overlay")
         self.particles = []
@@ -130,10 +134,9 @@ class WeatherAnimator:
         self.canvas.delete("anim_particle")
 
         if self.animation_type in ("rain", "thunderstorm"):
-            # Draw rain
             for p in self.particles:
                 p["y"] += p["speed"]
-                p["x"] -= p["speed"] * 0.15  # slight slant
+                p["x"] -= p["speed"] * 0.15
                 if p["y"] > h + 20:
                     p["y"] = random.randint(-40, -10)
                     p["x"] = random.randint(0, w + 100)
@@ -146,7 +149,6 @@ class WeatherAnimator:
                     tags="anim_particle"
                 )
 
-            # Thunderstorm flash logic
             if self.animation_type == "thunderstorm":
                 self.canvas.delete("lightning_overlay")
                 if self.lightning_flash > 0:
@@ -157,11 +159,10 @@ class WeatherAnimator:
                         stipple="gray50" if self.lightning_flash == 1 else "gray25",
                         tags="lightning_overlay"
                     )
-                elif random.random() < 0.015:
-                    self.lightning_flash = 3  # Flash for 3 frames
+                elif random.random() < 0.012:
+                    self.lightning_flash = 3
 
         elif self.animation_type == "snow":
-            # Draw snow with sinusoidal drift
             for p in self.particles:
                 p["y"] += p["speed"]
                 p["angle"] += p["drift_freq"]
@@ -186,9 +187,8 @@ class WeatherAnimator:
                 if c["x"] - c["size"] > w:
                     c["x"] = -c["size"] * 2
                     c["y"] = random.randint(20, 160)
-                
+
                 sz = c["size"]
-                # Layered cloud bubbles
                 self.canvas.create_oval(
                     c["x"], c["y"], c["x"] + sz, c["y"] + sz * 0.6,
                     fill="#FFFFFF", stipple="gray25", outline="",
@@ -218,5 +218,5 @@ class WeatherAnimator:
                     tags="anim_particle"
                 )
 
-        # ~30 FPS loop
+        # Re-schedule at ~30 FPS
         self._after_id = self.canvas.after(33, self._tick)

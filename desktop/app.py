@@ -1,26 +1,29 @@
 """
-SkyCast — Real-Time Weather Application (Desktop Tkinter Edition).
-Launch script for the Tkinter desktop GUI.
+SkyCast — Real-Time Weather Application (Desktop Tkinter Edition)
+-----------------------------------------------------------------
+Main entry point for running the desktop GUI application.
+Developed using Python standard library Tkinter and Pillow.
+Complies with school project guidelines: no external GUI frameworks.
 """
 
 import sys
 import os
 
-# Ensure project root is in sys.path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
+# Ensure the root directory is available on sys.path
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-from desktop.ui.main_window import SkyCastApp
+from desktop.ui.main_window import SkyCastMainWindow
 
 def main():
     try:
-        app = SkyCastApp()
+        app = SkyCastMainWindow()
         app.mainloop()
     except KeyboardInterrupt:
         print("\nSkyCast closed by user.")
     except Exception as e:
-        print(f"Error launching SkyCast Desktop: {e}")
+        print(f"Error executing SkyCast Desktop: {e}")
 
 if __name__ == "__main__":
     main()

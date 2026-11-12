@@ -1,113 +1,290 @@
 """
-Main Tkinter Window for SkyCast Desktop.
-Provides glassmorphism layout, live weather display, hourly & 7-day forecast cards,
-search autocomplete, unit toggle, and particle animation hooks.
+SkyCast Desktop UI — Main Application Window
+--------------------------------------------
+Orchestrates all Tkinter components:
+- Responsive Canvas layout with Pillow glassmorphism panels (1100x750 default, min 800x600)
+- Asynchronous Open-Meteo network requests (never freezes the GUI)
+- Settings & Favorites persistence via `storage.py`
+- Offline fallback to cached weather data
+- 10-minute auto-refresh cycle with manual refresh trigger
+- Unit conversions (°C/°F, wind km/h/mph/m/s, pressure hPa/inHg)
+- Weather particle animations (rain, snow, clouds, thunderstorm with lightning flash)
 """
 
 import tkinter as tk
 from tkinter import font as tkfont
-import datetime
-from typing import Optional, Dict, Any, List
+import time
+import queue
+from typing import Dict, Any, Optional, List
 
 from shared.weather_codes import get_weather_info
+from desktop.storage import StorageManager
 from desktop.api_client import WeatherApiClient
 from desktop.ui.theme import get_theme, DEFAULT_THEME
 from desktop.ui.panels import get_gradient_image, create_glass_card
 from desktop.ui.animations import WeatherAnimator
+from desktop.ui.search_bar import SearchBar
+from desktop.ui.current_weather import CurrentWeatherCard
+from desktop.ui.details_grid import DetailsGrid
+from desktop.ui.forecast import ForecastView
 
-class SkyCastApp(tk.Tk):
+class SkyCastMainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
 
         self.title("SkyCast — Real-Time Weather Application")
-        self.geometry("1120x760")
-        self.minsize(920, 640)
+        self.geometry("1100x750")
+        self.minsize(800, 600)
+
+        # Thread-safe task queue for background workers
+        self.task_queue = queue.Queue()
+        self._poll_queue()
+
+        # Core Managers
+        self.storage = StorageManager()
+        self.api_client = WeatherApiClient()
 
         # State
-        self.api_client = WeatherApiClient()
-        self.is_fahrenheit = False
-        self.current_city = "London"
-        self.current_country = "United Kingdom"
-        self.current_lat = 51.5074
-        self.current_lon = -0.1278
+        self.units = self.storage.get_units()
+        self.current_city = self.storage.get_last_city()
         self.weather_data: Optional[Dict[str, Any]] = None
         self.current_theme = DEFAULT_THEME
-        self.search_debounce_id = None
-        self.resize_debounce_id = None
+        self.last_updated_time: float = time.time()
+        self.is_offline: bool = False
+        self.status_message: str = "Ready"
 
-        # Build UI
-        self._setup_ui()
+        self.resize_debounce_id: Optional[str] = None
+        self.auto_refresh_id: Optional[str] = None
 
-        # Initialize Animator
-        self.animator = WeatherAnimator(self.canvas)
-
-        # Bind resize event
-        self.bind("<Configure>", self._on_resize)
-        self.bind("<Return>", lambda e: self._on_search_submit())
-
-        # Load initial city weather
-        self.after(200, lambda: self.load_weather(self.current_lat, self.current_lon, self.current_city, self.current_country))
-
-    def _setup_ui(self):
-        # Configure fonts
-        self.font_logo = tkfont.Font(family="Segoe UI", size=18, weight="bold")
-        self.font_title = tkfont.Font(family="Segoe UI", size=24, weight="bold")
-        self.font_subtitle = tkfont.Font(family="Segoe UI", size=11)
-        self.font_temp = tkfont.Font(family="Segoe UI", size=54, weight="bold")
-        self.font_h2 = tkfont.Font(family="Segoe UI", size=14, weight="bold")
-        self.font_body = tkfont.Font(family="Segoe UI", size=10)
-        self.font_body_bold = tkfont.Font(family="Segoe UI", size=10, weight="bold")
-        self.font_icon_large = tkfont.Font(family="Segoe UI Emoji", size=48)
-        self.font_icon_mid = tkfont.Font(family="Segoe UI Emoji", size=20)
-        self.font_icon_small = tkfont.Font(family="Segoe UI Emoji", size=14)
-
-        # Root Canvas that fills entire window
+        # Build Full Canvas
         self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # Search Entry Widget overlaid on top
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", self._on_search_text_changed)
+        # Setup Fonts
+        self._init_fonts()
 
-        self.search_entry = tk.Entry(
-            self.canvas,
-            textvariable=self.search_var,
-            font=("Segoe UI", 11),
-            bg="#1E293B",
-            fg="#FFFFFF",
-            insertbackground="#FFFFFF",
-            relief="flat",
-            highlightthickness=1,
-            highlightcolor="#38BDF8",
-            highlightbackground="#475569"
+        # Child Component Controllers
+        self.animator = WeatherAnimator(self.canvas)
+        self.search_bar = SearchBar(
+            parent_canvas=self.canvas,
+            on_search_submit=self._on_search_submit,
+            on_select_city=self._on_city_selected,
+            on_query_autocomplete=self._on_query_autocomplete
         )
-
-        # Search suggestions popup listbox
-        self.suggest_box = tk.Listbox(
-            self.canvas,
-            font=("Segoe UI", 10),
-            bg="#0F172A",
-            fg="#F1F5F9",
-            selectbackground="#2563EB",
-            selectforeground="#FFFFFF",
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground="#38BDF8",
-            activestyle="none"
+        self.hero_card = CurrentWeatherCard(
+            canvas=self.canvas,
+            on_toggle_favorite=self._toggle_favorite,
+            on_refresh=self._manual_refresh
         )
-        self.suggest_box.bind("<<ListboxSelect>>", self._on_select_suggestion)
+        self.details_grid = DetailsGrid(self.canvas)
+        self.forecast_view = ForecastView(self.canvas)
 
-        # Status text tag
-        self.status_message = "Ready"
+        # Bindings
+        self.bind("<Configure>", self._on_resize)
+
+        # Load initial weather (or offline cache if network fails)
+        self.after(150, self._load_initial_data)
+
+        # Start 10-minute auto-refresh cycle
+        self._schedule_auto_refresh()
+
+    def _init_fonts(self):
+        self.fonts = {
+            "logo": tkfont.Font(family="Segoe UI", size=16, weight="bold"),
+            "title": tkfont.Font(family="Segoe UI", size=22, weight="bold"),
+            "subtitle": tkfont.Font(family="Segoe UI", size=10),
+            "temp_large": tkfont.Font(family="Segoe UI", size=50, weight="bold"),
+            "h2": tkfont.Font(family="Segoe UI", size=13, weight="bold"),
+            "body": tkfont.Font(family="Segoe UI", size=10),
+            "body_bold": tkfont.Font(family="Segoe UI", size=10, weight="bold"),
+            "small": tkfont.Font(family="Segoe UI", size=8),
+            "small_bold": tkfont.Font(family="Segoe UI", size=8, weight="bold"),
+            "icon_large": tkfont.Font(family="Segoe UI Emoji", size=46)
+        }
 
     def _on_resize(self, event):
-        # Only handle window resize (not child widgets)
         if event.widget == self:
             if self.resize_debounce_id:
                 self.after_cancel(self.resize_debounce_id)
-            self.resize_debounce_id = self.after(100, self._redraw_all)
+            self.resize_debounce_id = self.after(80, self._redraw_ui)
 
-    def _redraw_all(self):
+    def _schedule_auto_refresh(self):
+        """Auto-refresh every 10 minutes (600,000 ms)."""
+        if self.auto_refresh_id:
+            self.after_cancel(self.auto_refresh_id)
+        self.auto_refresh_id = self.after(600000, self._auto_refresh_tick)
+
+    def _auto_refresh_tick(self):
+        self.load_weather(self.current_city, silent=True)
+        self._schedule_auto_refresh()
+
+    def _manual_refresh(self):
+        self.status_message = "Refreshing live weather..."
+        self._redraw_ui()
+        self.load_weather(self.current_city)
+
+    def _load_initial_data(self):
+        # Load last city from storage
+        last_c = self.storage.get_last_city()
+        self.load_weather(last_c)
+
+    def _poll_queue(self):
+        """Process any pending thread callbacks safely in the Tkinter main loop."""
+        try:
+            while not self.task_queue.empty():
+                callback = self.task_queue.get_nowait()
+                try:
+                    callback()
+                except Exception as ex:
+                    print(f"[MainThread Queue Error]: {ex}")
+        except Exception:
+            pass
+        self.after(50, self._poll_queue)
+
+    def dispatch_to_main_thread(self, callback):
+        """Thread-safe dispatch from background workers into the Tkinter main thread."""
+        self.task_queue.put(callback)
+
+    def load_weather(self, city_info: Dict[str, Any], silent: bool = False):
+        """Asynchronously load weather from Open-Meteo, with graceful offline fallback."""
+        self.current_city = city_info
+        lat = city_info.get("lat") or city_info.get("latitude", 51.5074)
+        lon = city_info.get("lon") or city_info.get("longitude", -0.1278)
+
+        if not silent:
+            self.status_message = f"Fetching real-time weather for {city_info.get('name', 'city')}..."
+            self._redraw_ui()
+
+        temp_u = self.units.get("temp", "celsius")
+        wind_u = self.units.get("wind", "kmh")
+
+        def on_success(data: Dict[str, Any]):
+            # Safely queue UI update into the main thread task queue
+            self.dispatch_to_main_thread(lambda: self._apply_weather_success(data, city_info))
+
+        def on_error(err_msg: str):
+            self.dispatch_to_main_thread(lambda: self._apply_weather_error(err_msg))
+
+        self.api_client.get_weather_async(lat, lon, temp_u, wind_u, on_success, on_error)
+
+    def _apply_weather_success(self, data: Dict[str, Any], city_info: Dict[str, Any]):
+        self.weather_data = data
+        self.last_updated_time = time.time()
+        self.is_offline = False
+        self.status_message = f"Live weather updated for {city_info.get('name')}."
+
+        # Cache for offline usage
+        self.storage.save_cache(data)
+        self.storage.set_last_city(city_info)
+
+        # Dynamic Theme & Particle Animation
+        curr = data.get("current", {})
+        code = curr.get("weather_code", 0)
+        is_day = curr.get("is_day", 1)
+        w_info = get_weather_info(code, is_day)
+
+        self.current_theme = get_theme(w_info["theme_key"])
+        self.animator.set_animation(w_info["animation"])
+
+        self._redraw_ui()
+
+    def _apply_weather_error(self, err_msg: str):
+        # Attempt offline fallback
+        cached = self.storage.get_cache()
+        if cached:
+            self.weather_data = cached
+            self.last_updated_time = self.storage.get_cache_timestamp()
+            self.is_offline = True
+            self.status_message = f"⚠️ {err_msg} — Displaying cached offline data."
+
+            curr = cached.get("current", {})
+            code = curr.get("weather_code", 0)
+            is_day = curr.get("is_day", 1)
+            w_info = get_weather_info(code, is_day)
+            self.current_theme = get_theme(w_info["theme_key"])
+            self.animator.set_animation(w_info["animation"])
+        else:
+            self.status_message = f"⚠️ {err_msg} — No cached data available."
+
+        self._redraw_ui()
+
+    # --- Search & Autocomplete Handlers ---
+
+    def _on_query_autocomplete(self, query: str):
+        def on_res(results):
+            self.dispatch_to_main_thread(lambda: self._show_autocomplete(results))
+        self.api_client.search_cities_async(query, on_res, lambda e: None)
+
+    def _show_autocomplete(self, results):
+        w = self.canvas.winfo_width()
+        entry_w = min(max(int(w * 0.26), 200), 300)
+        entry_x = int(w * 0.28)
+        self.search_bar.update_suggestions(results, entry_x, 56, entry_w)
+
+    def _on_city_selected(self, city_item: Dict[str, Any]):
+        self.load_weather(city_item)
+
+    def _on_search_submit(self, query: str):
+        self.status_message = f"Searching for '{query}'..."
+        self._redraw_ui()
+
+        def on_res(results):
+            if results:
+                self.dispatch_to_main_thread(lambda: self.load_weather(results[0]))
+            else:
+                self.dispatch_to_main_thread(lambda: self._apply_weather_error(f"City '{query}' not found."))
+
+        self.api_client.search_cities_async(query, on_res, lambda err: self.dispatch_to_main_thread(lambda: self._apply_weather_error(err)))
+
+    # --- Favorites & Unit Toggles ---
+
+    def _toggle_favorite(self):
+        city_name = self.current_city.get("name", "")
+        if self.storage.is_favorite(city_name):
+            self.storage.remove_favorite(city_name)
+            self.status_message = f"Removed {city_name} from favorites."
+        else:
+            self.storage.add_favorite(self.current_city)
+            self.status_message = f"Added {city_name} to favorites ⭐"
+        self._redraw_ui()
+
+    def _show_favorites_menu(self):
+        favs = self.storage.get_favorites()
+        if not favs:
+            self.status_message = "No favorite cities added yet. Click ⭐ to bookmark a city."
+            self._redraw_ui()
+            return
+
+        # Simple popup listbox
+        w = self.canvas.winfo_width()
+        top_x = w - 410
+        self.search_bar.update_suggestions(favs, top_x, 56, 200)
+
+    def _toggle_temp_unit(self):
+        curr = self.units.get("temp", "celsius")
+        new_u = "fahrenheit" if curr == "celsius" else "celsius"
+        self.units["temp"] = new_u
+        self.storage.set_unit("temp", new_u)
+        self.load_weather(self.current_city)
+
+    def _toggle_wind_unit(self):
+        curr = self.units.get("wind", "kmh")
+        order = ["kmh", "mph", "ms"]
+        next_u = order[(order.index(curr) + 1) % len(order)]
+        self.units["wind"] = next_u
+        self.storage.set_unit("wind", next_u)
+        self.load_weather(self.current_city)
+
+    def _toggle_pressure_unit(self):
+        curr = self.units.get("pressure", "hPa")
+        new_u = "inHg" if curr == "hPa" else "hPa"
+        self.units["pressure"] = new_u
+        self.storage.set_unit("pressure", new_u)
+        self._redraw_ui()
+
+    # --- Rendering Engine ---
+
+    def _redraw_ui(self):
         w = self.canvas.winfo_width()
         h = self.canvas.winfo_height()
         if w < 100 or h < 100:
@@ -116,7 +293,7 @@ class SkyCastApp(tk.Tk):
         self.canvas.delete("ui_element")
         self.canvas.delete("bg_gradient")
 
-        # 1. Background gradient
+        # 1. Background linear gradient
         grad_img = get_gradient_image(
             w, h,
             self.current_theme["gradient_top"],
@@ -124,455 +301,142 @@ class SkyCastApp(tk.Tk):
         )
         self.canvas.create_image(0, 0, image=grad_img, anchor="nw", tags="bg_gradient")
 
-        # 2. Top Header & Navigation Bar
+        # 2. Top Header Navigation
         self._draw_header(w)
 
-        # 3. Main Weather View (Hero + 4 Metric Cards)
-        self._draw_hero_panel(w, h)
+        # 3. Layout Dimensions (2 Columns)
+        margin = 25
+        gap = 18
+        top_y = 75
 
-        # 4. Hourly Forecast Slider / Panel
-        self._draw_hourly_forecast(w, h)
+        # Responsive column split
+        col_w = (w - margin * 2 - gap) // 2
 
-        # 5. 7-Day Forecast Panel
-        self._draw_daily_forecast(w, h)
+        # Left Column: Hero Weather Card + Extra Details Grid
+        hero_h = int((h - top_y - 40) * 0.48)
+        details_y = top_y + hero_h + gap
+        details_h = h - details_y - 35
 
-        # 6. Status Message
+        is_fav = self.storage.is_favorite(self.current_city.get("name", ""))
+        self.hero_card.draw(
+            x=margin, y=top_y, width=col_w, height=hero_h,
+            city_info=self.current_city,
+            weather_data=self.weather_data or {},
+            theme=self.current_theme,
+            units=self.units,
+            is_fav=is_fav,
+            last_updated_time=self.last_updated_time,
+            is_offline=self.is_offline,
+            fonts=self.fonts
+        )
+
+        self.details_grid.draw(
+            x=margin, y=details_y, width=col_w, height=details_h,
+            weather_data=self.weather_data or {},
+            theme=self.current_theme,
+            units=self.units,
+            font_title=self.fonts["h2"],
+            font_value=self.fonts["body_bold"],
+            font_label=self.fonts["small_bold"],
+            font_badge=self.fonts["small"]
+        )
+
+        # Right Column: 24h Trend Chart + 7-Day Forecast
+        chart_x = margin + col_w + gap
+        chart_h = int((h - top_y - 40) * 0.44)
+        daily_y = top_y + chart_h + gap
+        daily_h = h - daily_y - 35
+
+        temp_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
+
+        self.forecast_view.draw_trend_chart(
+            x=chart_x, y=top_y, width=col_w, height=chart_h,
+            weather_data=self.weather_data or {},
+            theme=self.current_theme,
+            temp_symbol=temp_sym,
+            font_title=self.fonts["h2"],
+            font_small=self.fonts["small"],
+            font_bold=self.fonts["small_bold"]
+        )
+
+        self.forecast_view.draw_7day_forecast(
+            x=chart_x, y=daily_y, width=col_w, height=daily_h,
+            weather_data=self.weather_data or {},
+            theme=self.current_theme,
+            temp_symbol=temp_sym,
+            font_title=self.fonts["h2"],
+            font_body=self.fonts["body"],
+            font_bold=self.fonts["body_bold"]
+        )
+
+        # Status Bar at Bottom
         self.canvas.create_text(
-            30, h - 20,
-            text=f"✦ Status: {self.status_message}  |  Data provided by Open-Meteo",
-            font=self.font_body,
-            fill="#94A3B8",
+            margin, h - 16,
+            text=f"✦ {self.status_message}   |   Open-Meteo API",
+            font=self.fonts["small"],
+            fill=self.current_theme["text_muted"],
             anchor="w",
             tags="ui_element"
         )
 
     def _draw_header(self, w: int):
-        # Logo and Title
+        margin = 25
+        # Logo & App Title
         self.canvas.create_text(
-            30, 36,
+            margin, 36,
             text="✦ SKYCAST",
-            font=self.font_logo,
+            font=self.fonts["logo"],
             fill=self.current_theme["text_primary"],
             anchor="w",
             tags="ui_element"
         )
         self.canvas.create_text(
-            170, 38,
-            text="Real-Time Weather Intelligence",
-            font=self.font_subtitle,
+            margin + 125, 38,
+            text="Weather Intelligence",
+            font=self.fonts["subtitle"],
             fill=self.current_theme["text_secondary"],
             anchor="w",
             tags="ui_element"
         )
 
-        # Search Bar Entry placement
-        entry_w = min(max(int(w * 0.28), 220), 320)
-        entry_x = w - entry_w - 240
-        self.canvas.create_window(entry_x, 38, window=self.search_entry, width=entry_w, height=34, tags="ui_element")
+        # Place native search entry
+        entry_w = min(max(int(w * 0.26), 200), 300)
+        entry_x = int(w * 0.28)
+        self.canvas.create_window(entry_x, 38, window=self.search_bar.entry, width=entry_w, height=32, tags="ui_element")
 
-        # Search Button (🔍)
-        search_btn_x = entry_x + entry_w // 2 + 30
-        self._draw_button(
-            x=search_btn_x, y=21, w=75, h=34,
-            text="Search",
-            bg_color="#2563EB",
-            fg_color="#FFFFFF",
-            callback=self._on_search_submit
-        )
+        # Search Button
+        s_btn_x = entry_x + entry_w // 2 + 25
+        self._create_btn(s_btn_x, 22, 65, 32, "Search", "#2563EB", "#FFFFFF", self.search_bar.submit)
 
-        # Unit Toggle Button (°C / °F)
-        unit_btn_x = search_btn_x + 85
-        unit_text = "°F" if self.is_fahrenheit else "°C"
-        toggle_label = f"Unit: {unit_text}"
-        self._draw_button(
-            x=unit_btn_x, y=21, w=90, h=34,
-            text=toggle_label,
-            bg_color="#334155",
-            fg_color="#F8FAFC",
-            callback=self._toggle_units
-        )
+        # Favorites Button (⭐)
+        fav_btn_x = s_btn_x + 72
+        self._create_btn(fav_btn_x, 22, 85, 32, "★ Saved", "#334155", "#F8FAFC", self._show_favorites_menu)
 
-    def _draw_button(self, x: int, y: int, w: int, h: int, text: str, bg_color: str, fg_color: str, callback):
-        tag_btn = f"btn_{x}_{y}"
-        # Button Card
-        card = create_glass_card(w, h, radius=8, fill_rgba=(30, 41, 59, 220), border_rgba=(148, 163, 184, 120))
-        self.canvas.create_image(x, y, image=card, anchor="nw", tags=("ui_element", tag_btn))
+        # Unit Toggles: Temp (°C/°F), Wind, Pressure
+        t_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
+        w_sym = self.units.get("wind", "kmh")
+        p_sym = self.units.get("pressure", "hPa")
+
+        btn1_x = w - margin - 220
+        self._create_btn(btn1_x, 22, 65, 32, t_sym, "#1E293B", "#38BDF8", self._toggle_temp_unit)
+
+        btn2_x = btn1_x + 72
+        self._create_btn(btn2_x, 22, 65, 32, w_sym, "#1E293B", "#38BDF8", self._toggle_wind_unit)
+
+        btn3_x = btn2_x + 72
+        self._create_btn(btn3_x, 22, 65, 32, p_sym, "#1E293B", "#38BDF8", self._toggle_pressure_unit)
+
+    def _create_btn(self, x: int, y: int, w: int, h: int, text: str, bg_color: str, fg_color: str, callback):
+        tag = f"btn_{x}_{y}"
+        btn_card = create_glass_card(w, h, radius=8, fill_rgba=(30, 41, 59, 210), border_rgba=(148, 163, 184, 100))
+        self.canvas.create_image(x, y, image=btn_card, anchor="nw", tags=("ui_element", tag))
         self.canvas.create_text(
             x + w // 2, y + h // 2,
             text=text,
-            font=self.font_body_bold,
+            font=self.fonts["small_bold"],
             fill=fg_color,
-            tags=("ui_element", tag_btn)
+            tags=("ui_element", tag)
         )
-        self.canvas.tag_bind(tag_btn, "<Button-1>", lambda e: callback())
-        self.canvas.tag_bind(tag_btn, "<Enter>", lambda e: self.config(cursor="hand2"))
-        self.canvas.tag_bind(tag_btn, "<Leave>", lambda e: self.config(cursor=""))
-
-    def _draw_hero_panel(self, w: int, h: int):
-        left_w = int(w * 0.44)
-        hero_h = int(h * 0.50)
-        x = 30
-        y = 75
-
-        # Glass Panel
-        card = create_glass_card(left_w, hero_h, radius=20, fill_rgba=self.current_theme["glass_fill"], border_rgba=self.current_theme["glass_border"])
-        self.canvas.create_image(x, y, image=card, anchor="nw", tags="ui_element")
-
-        if not self.weather_data or "current" not in self.weather_data:
-            self.canvas.create_text(
-                x + left_w // 2, y + hero_h // 2,
-                text="Loading live weather...",
-                font=self.font_h2,
-                fill=self.current_theme["text_primary"],
-                tags="ui_element"
-            )
-            return
-
-        curr = self.weather_data["current"]
-        w_code = curr.get("weather_code", 0)
-        is_day = curr.get("is_day", 1)
-        w_info = get_weather_info(w_code, is_day)
-
-        # Location title
-        self.canvas.create_text(
-            x + 25, y + 35,
-            text=f"📍 {self.current_city}",
-            font=self.font_title,
-            fill=self.current_theme["text_primary"],
-            anchor="w",
-            tags="ui_element"
-        )
-        now_str = datetime.datetime.now().strftime("%A, %d %B • %I:%M %p")
-        self.canvas.create_text(
-            x + 25, y + 68,
-            text=f"{self.current_country}  |  {now_str}",
-            font=self.font_subtitle,
-            fill=self.current_theme["text_secondary"],
-            anchor="w",
-            tags="ui_element"
-        )
-
-        # Big Weather Icon & Temperature
-        icon_str = w_info["icon"]
-        temp_val = curr.get("temperature_2m", "--")
-        unit_symbol = "°F" if self.is_fahrenheit else "°C"
-
-        self.canvas.create_text(
-            x + 30, y + 140,
-            text=icon_str,
-            font=self.font_icon_large,
-            anchor="w",
-            tags="ui_element"
-        )
-        self.canvas.create_text(
-            x + 130, y + 140,
-            text=f"{round(temp_val)}{unit_symbol}",
-            font=self.font_temp,
-            fill=self.current_theme["text_primary"],
-            anchor="w",
-            tags="ui_element"
-        )
-
-        # Condition Description & Feels Like
-        feels_like = curr.get("apparent_temperature", "--")
-        self.canvas.create_text(
-            x + 25, y + 215,
-            text=f"{w_info['condition']} — {w_info['description']}",
-            font=self.font_h2,
-            fill=self.current_theme["accent"],
-            anchor="w",
-            tags="ui_element"
-        )
-        self.canvas.create_text(
-            x + 25, y + 242,
-            text=f"Feels like {round(feels_like)}{unit_symbol}",
-            font=self.font_subtitle,
-            fill=self.current_theme["text_secondary"],
-            anchor="w",
-            tags="ui_element"
-        )
-
-        # 4 Mini Metric Cards Inside Hero
-        metric_y = y + 280
-        metric_w = (left_w - 50) // 4
-        metric_h = 75
-
-        metrics = [
-            ("💧 Humidity", f"{curr.get('relative_humidity_2m', '--')}%"),
-            ("💨 Wind", f"{curr.get('wind_speed_10m', '--')} {'mph' if self.is_fahrenheit else 'km/h'}"),
-            ("⏲ Pressure", f"{round(curr.get('surface_pressure', 0))} hPa"),
-            ("🌧 Rain Prob", f"{curr.get('precipitation', 0)} mm")
-        ]
-
-        for i, (label, val) in enumerate(metrics):
-            mx = x + 15 + i * (metric_w + 6)
-            m_card = create_glass_card(metric_w, metric_h, radius=10, fill_rgba=(255, 255, 255, 18), border_rgba=(255, 255, 255, 45))
-            self.canvas.create_image(mx, metric_y, image=m_card, anchor="nw", tags="ui_element")
-            self.canvas.create_text(
-                mx + metric_w // 2, metric_y + 22,
-                text=label,
-                font=self.font_body,
-                fill=self.current_theme["text_secondary"],
-                tags="ui_element"
-            )
-            self.canvas.create_text(
-                mx + metric_w // 2, metric_y + 48,
-                text=val,
-                font=self.font_body_bold,
-                fill=self.current_theme["text_primary"],
-                tags="ui_element"
-            )
-
-    def _draw_hourly_forecast(self, w: int, h: int):
-        left_w = int(w * 0.44)
-        x = 30
-        y = int(h * 0.50) + 95
-        hourly_h = h - y - 35
-        if hourly_h < 100:
-            return
-
-        card = create_glass_card(left_w, hourly_h, radius=18, fill_rgba=self.current_theme["glass_fill"], border_rgba=self.current_theme["glass_border"])
-        self.canvas.create_image(x, y, image=card, anchor="nw", tags="ui_element")
-
-        self.canvas.create_text(
-            x + 20, y + 22,
-            text="⏱ Hourly Forecast (Next 24h)",
-            font=self.font_h2,
-            fill=self.current_theme["text_primary"],
-            anchor="w",
-            tags="ui_element"
-        )
-
-        if not self.weather_data or "hourly" not in self.weather_data:
-            return
-
-        hourly = self.weather_data["hourly"]
-        times = hourly.get("time", [])[:24]
-        temps = hourly.get("temperature_2m", [])[:24]
-        codes = hourly.get("weather_code", [])[:24]
-        is_days = hourly.get("is_day", [])[:24]
-
-        # Display first 6 key intervals (e.g. +1h, +3h, +6h, +9h, +12h, +18h)
-        indices = [0, 2, 5, 8, 12, 17] if len(times) >= 18 else list(range(min(6, len(times))))
-        card_w = (left_w - 40) // len(indices)
-
-        for i, idx in enumerate(indices):
-            if idx >= len(times):
-                continue
-            t_str = times[idx]
-            dt = datetime.datetime.fromisoformat(t_str)
-            hour_label = dt.strftime("%I %p").lstrip("0")
-            temp_val = temps[idx]
-            code = codes[idx]
-            is_d = is_days[idx] if idx < len(is_days) else 1
-            info = get_weather_info(code, is_d)
-
-            cx = x + 12 + i * (card_w + 3)
-            cy = y + 45
-            ch = hourly_h - 60
-
-            # Mini hour pill
-            h_card = create_glass_card(card_w, ch, radius=10, fill_rgba=(255, 255, 255, 14), border_rgba=(255, 255, 255, 40))
-            self.canvas.create_image(cx, cy, image=h_card, anchor="nw", tags="ui_element")
-
-            self.canvas.create_text(cx + card_w // 2, cy + 20, text=hour_label, font=self.font_body, fill=self.current_theme["text_secondary"], tags="ui_element")
-            self.canvas.create_text(cx + card_w // 2, cy + 46, text=info["icon"], font=self.font_icon_mid, tags="ui_element")
-            unit_sym = "°F" if self.is_fahrenheit else "°C"
-            self.canvas.create_text(cx + card_w // 2, cy + 74, text=f"{round(temp_val)}{unit_sym}", font=self.font_body_bold, fill=self.current_theme["text_primary"], tags="ui_element")
-
-    def _draw_daily_forecast(self, w: int, h: int):
-        left_w = int(w * 0.44)
-        daily_x = left_w + 50
-        daily_w = w - daily_x - 30
-        daily_y = 75
-        daily_h = h - daily_y - 35
-        if daily_w < 200 or daily_h < 200:
-            return
-
-        card = create_glass_card(daily_w, daily_h, radius=20, fill_rgba=self.current_theme["glass_fill"], border_rgba=self.current_theme["glass_border"])
-        self.canvas.create_image(daily_x, daily_y, image=card, anchor="nw", tags="ui_element")
-
-        self.canvas.create_text(
-            daily_x + 25, daily_y + 30,
-            text="📅 7-Day Forecast",
-            font=self.font_h2,
-            fill=self.current_theme["text_primary"],
-            anchor="w",
-            tags="ui_element"
-        )
-
-        if not self.weather_data or "daily" not in self.weather_data:
-            return
-
-        daily = self.weather_data["daily"]
-        dates = daily.get("time", [])[:7]
-        codes = daily.get("weather_code", [])[:7]
-        t_max = daily.get("temperature_2m_max", [])[:7]
-        t_min = daily.get("temperature_2m_min", [])[:7]
-        precip = daily.get("precipitation_probability_max", [])[:7]
-
-        row_h = (daily_h - 70) // max(len(dates), 1)
-        unit_sym = "°F" if self.is_fahrenheit else "°C"
-
-        for i, date_str in enumerate(dates):
-            dt = datetime.date.fromisoformat(date_str)
-            day_name = "Today" if i == 0 else dt.strftime("%A")
-            formatted_date = dt.strftime("%b %d")
-            code = codes[i] if i < len(codes) else 0
-            info = get_weather_info(code, 1)
-            high = t_max[i] if i < len(t_max) else "--"
-            low = t_min[i] if i < len(t_min) else "--"
-            rain_chance = f"{precip[i]}%" if i < len(precip) and precip[i] is not None else "--"
-
-            ry = daily_y + 60 + i * row_h
-
-            # Subtle alternating hover-style glass row
-            r_card = create_glass_card(daily_w - 40, row_h - 8, radius=8, fill_rgba=(255, 255, 255, 12), border_rgba=(255, 255, 255, 30))
-            self.canvas.create_image(daily_x + 20, ry, image=r_card, anchor="nw", tags="ui_element")
-
-            # Day name & Date
-            self.canvas.create_text(
-                daily_x + 35, ry + (row_h - 8) // 2 - 8,
-                text=day_name,
-                font=self.font_body_bold,
-                fill=self.current_theme["text_primary"],
-                anchor="w",
-                tags="ui_element"
-            )
-            self.canvas.create_text(
-                daily_x + 35, ry + (row_h - 8) // 2 + 10,
-                text=formatted_date,
-                font=self.font_body,
-                fill=self.current_theme["text_secondary"],
-                anchor="w",
-                tags="ui_element"
-            )
-
-            # Weather Icon & Condition
-            self.canvas.create_text(
-                daily_x + int(daily_w * 0.36), ry + (row_h - 8) // 2,
-                text=f"{info['icon']}  {info['condition']}",
-                font=self.font_body,
-                fill=self.current_theme["text_primary"],
-                anchor="w",
-                tags="ui_element"
-            )
-
-            # Rain probability badge
-            self.canvas.create_text(
-                daily_x + int(daily_w * 0.65), ry + (row_h - 8) // 2,
-                text=f"💧 {rain_chance}",
-                font=self.font_body,
-                fill=self.current_theme["text_secondary"],
-                anchor="w",
-                tags="ui_element"
-            )
-
-            # High / Low Temperature
-            self.canvas.create_text(
-                daily_x + daily_w - 45, ry + (row_h - 8) // 2,
-                text=f"{round(high)}{unit_sym} / {round(low)}{unit_sym}",
-                font=self.font_body_bold,
-                fill=self.current_theme["text_primary"],
-                anchor="e",
-                tags="ui_element"
-            )
-
-    def _on_search_text_changed(self, *args):
-        if self.search_debounce_id:
-            self.after_cancel(self.search_debounce_id)
-        self.search_debounce_id = self.after(350, self._query_suggestions)
-
-    def _query_suggestions(self):
-        text = self.search_var.get().strip()
-        if len(text) < 2:
-            self.suggest_box.place_forget()
-            return
-
-        def on_results(results):
-            self.after(0, lambda: self._show_suggestions(results))
-
-        self.api_client.search_cities_async(text, on_results, lambda err: None)
-
-    def _show_suggestions(self, results: List[Dict[str, Any]]):
-        if not results:
-            self.suggest_box.place_forget()
-            return
-
-        self.suggest_results = results
-        self.suggest_box.delete(0, tk.END)
-        for r in results:
-            self.suggest_box.insert(tk.END, f"  {r['display_name']}")
-
-        w = self.canvas.winfo_width()
-        entry_w = min(max(int(w * 0.28), 220), 320)
-        entry_x = w - entry_w - 240
-        self.suggest_box.place(x=entry_x, y=58, width=entry_w, height=min(len(results) * 26 + 10, 140))
-        self.suggest_box.lift()
-
-    def _on_select_suggestion(self, event):
-        sel = self.suggest_box.curselection()
-        if not sel or not hasattr(self, "suggest_results"):
-            return
-        item = self.suggest_results[sel[0]]
-        self.suggest_box.place_forget()
-        self.search_var.set(item["name"])
-        self.load_weather(item["latitude"], item["longitude"], item["name"], item["country"])
-
-    def _on_search_submit(self):
-        text = self.search_var.get().strip()
-        if not text:
-            return
-        self.suggest_box.place_forget()
-        self.status_message = f"Searching for '{text}'..."
-        self._redraw_all()
-
-        def on_results(results):
-            if results:
-                top = results[0]
-                self.after(0, lambda: self.load_weather(top["latitude"], top["longitude"], top["name"], top["country"]))
-            else:
-                self.after(0, lambda: self._show_error(f"City '{text}' not found."))
-
-        self.api_client.search_cities_async(text, on_results, lambda err: self._show_error(err))
-
-    def _toggle_units(self):
-        self.is_fahrenheit = not self.is_fahrenheit
-        self.status_message = f"Switched unit to {'°F' if self.is_fahrenheit else '°C'}"
-        self.load_weather(self.current_lat, self.current_lon, self.current_city, self.current_country)
-
-    def load_weather(self, lat: float, lon: float, city: str, country: str):
-        self.current_lat = lat
-        self.current_lon = lon
-        self.current_city = city
-        self.current_country = country
-        self.status_message = f"Fetching real-time weather for {city}..."
-        self._redraw_all()
-
-        def on_success(data):
-            self.after(0, lambda: self._apply_weather_data(data))
-
-        def on_error(msg):
-            self.after(0, lambda: self._show_error(msg))
-
-        self.api_client.fetch_weather_async(lat, lon, self.is_fahrenheit, on_success, on_error)
-
-    def _apply_weather_data(self, data: Dict[str, Any]):
-        self.weather_data = data
-        curr = data.get("current", {})
-        code = curr.get("weather_code", 0)
-        is_day = curr.get("is_day", 1)
-        w_info = get_weather_info(code, is_day)
-
-        # Update Theme
-        self.current_theme = get_theme(w_info["theme_name"])
-
-        # Update Animation
-        self.animator.set_animation(w_info["animation"])
-
-        self.status_message = f"Updated live weather for {self.current_city}."
-        self._redraw_all()
-
-    def _show_error(self, message: str):
-        self.status_message = f"⚠️ {message}"
-        self._redraw_all()
+        self.canvas.tag_bind(tag, "<Button-1>", lambda e: callback())
+        self.canvas.tag_bind(tag, "<Enter>", lambda e: self.config(cursor="hand2"))
+        self.canvas.tag_bind(tag, "<Leave>", lambda e: self.config(cursor=""))

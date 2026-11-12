@@ -1,146 +1,169 @@
 # ✦ SkyCast — Real-Time Weather Application & Dashboard
 
-![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
-![Tkinter](https://img.shields.io/badge/GUI-Tkinter%20%2B%20Pillow-blue)
-![JavaScript](https://img.shields.io/badge/Web-Modern%20ES6%2B-F7DF1E?logo=javascript&logoColor=black)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![GUI](https://img.shields.io/badge/Desktop-Tkinter%20%2B%20Pillow-blue)
+![Web](https://img.shields.io/badge/Web-Modern%20ES6%2B%20%2B%20CSS-F7DF1E?logo=javascript&logoColor=black)
 ![API](https://img.shields.io/badge/API-Open--Meteo-007ACC)
 ![Deployment](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-A dual-platform weather intelligence suite featuring a **Python Tkinter Desktop Application** with canvas glassmorphism and lightweight particle animations, alongside a **responsive Modern Web Dashboard** hosted on Vercel with automatic browser-based geolocation and dynamic atmospheric themes.
+SkyCast is a real-time weather intelligence application built in two distinct versions that share the same visual design language and live data engine:
+1. **Desktop Application**: Written in Python using standard **Tkinter** and **Pillow**, featuring Canvas glassmorphism panels, an asynchronous threaded network engine, and a 24-hour temperature trend line chart.
+2. **Web Application**: A modern, mobile-first responsive dashboard with direct browser-to-API communication, automatic geolocation with privacy safeguards, and Canvas particle animations.
+
+---
+
+## 🚀 Hard Requirements Compliance
+
+- **Compulsory Tkinter GUI**: The desktop application is strictly developed in Python with Tkinter and Pillow. It runs completely standalone with zero external GUI framework dependencies.
+- **Allowed Libraries**: `tkinter`, `Pillow`, `requests` only.
+- **Zero API Keys**: Both versions use **Open-Meteo** (Forecast API, Geocoding API, and Air Quality API). No private tokens or secrets are needed or embedded anywhere in the code.
+- **Privacy Standard**: Geolocation is accessed strictly via a single-shot `navigator.geolocation.getCurrentPosition()`. Continuous background tracking (`watchPosition`) is never used, raw coordinates are never exposed in the UI, and permission denial is permanently respected.
 
 ---
 
 ## 🌟 Key Features
 
-### 🖥️ A. Desktop Application (Python Tkinter)
-- **Compulsory Tkinter GUI**: Developed using Python's native Tkinter with Canvas-rendered glassmorphism panels.
-- **Glassmorphism Aesthetic**: Custom Pillow-rendered translucent cards with smooth rounded borders.
-- **Live Weather Metrics**: Real-time temperature, feels-like, humidity, wind speed & direction, surface pressure, and precipitation.
-- **Hourly & 7-Day Outlooks**: Next 24 hours of hourly projections plus a comprehensive 7-day extended forecast.
-- **Particle Animation Engine**:
-  - 🌧️ **Rain**: Slanted raindrops with variable velocity and splash dynamics.
-  - ❄️ **Snow**: Swirling snowflakes with sinusoidal horizontal drift.
-  - ☁️ **Drifting Clouds**: Moving atmospheric clouds across the upper horizon.
-  - ⚡ **Thunderstorms**: High-velocity downpours with random lightning flash effects.
-  - ☀️ **Sunbeams**: Ambient dust/sun motes for clear sunny days.
-- **Instant Search with Autocomplete**: Debounced asynchronous city search powered by Open-Meteo geocoding.
-- **Unit Toggle**: Instant conversion between Celsius (°C) and Fahrenheit (°F).
-- **Responsive Layout**: Auto-adjusts cards and canvas elements smoothly on window resize.
+### 1. City Search with Autocomplete
+- 300ms debounced asynchronous search querying the Open-Meteo Geocoding API.
+- Autocomplete dropdown displaying matching cities, regions, and countries.
+- Keyboard navigation: `Enter` to search, `Escape` to clear.
 
-### 🌐 B. Web Application & Dashboard (HTML/CSS/JS)
-- **Visual Identity Parity**: Recreates the desktop glassmorphism design with backdrop filters and dynamic gradient transitions.
-- **Automatic Browser Geolocation**:
-  - Securely requests user location via `navigator.geolocation.getCurrentPosition()`.
-  - Reverse geocodes coordinates to display city and country.
-  - Privacy-preserving: No continuous background tracking, single-shot request, no raw coordinates exposed.
-  - Respects permission denial gracefully with a friendly banner and immediate fallback to manual search.
-  - Includes a **Refresh Location** button to re-sync coordinates on demand.
-- **Dynamic Atmospheric Backgrounds**: Auto-switches background color palettes and Canvas particle animations according to the live WMO weather condition code and time of day.
-- **Fluid & Accessible**: Built adhering to modern responsive standards (`clamp()`, dynamic viewport units `100dvh`, semantic HTML5, high-contrast dark themes).
+### 2. Current Conditions & Environmental Metrics
+- Large temperature readout with feels-like temperature.
+- Human-readable condition description and emoji icons.
+- **Extra Detail Tiles**:
+  - ☀️ **UV Index**: WHO categories (Low, Moderate, High, Very High, Extreme) with color labels.
+  - 🍃 **Air Quality**: European Air Quality Index (AQI) with color-coded classification.
+  - 💧 **Humidity**: Relative humidity percentage.
+  - 💨 **Wind**: Wind speed & direction compass heading.
+  - ⏲ **Pressure**: Barometric pressure with hPa and inHg conversions.
+  - 👁️ **Visibility**: Distance in kilometers or miles.
+  - ☁️ **Cloud Cover**: Percentage cloud coverage.
+  - 🌡️ **Dew Point**: Temperature at which moisture condenses.
+  - 🌅 **Sunrise & Sunset**: Local daylight hours.
+
+### 3. Forecasts & Trend Chart
+- **Hourly Forecast**: Timeline of the next 24 hours including hourly chance of precipitation (💧 %).
+- **7-Day Outlook**: Daily weather icons, condition labels, precipitation probability, and high/low temperature bars.
+- **24-Hour Temperature Trend Chart (Desktop)**: A custom line chart drawn directly on the Tkinter Canvas.
+
+### 4. Unit Toggles & Persistence
+- **Temperature**: Celsius (°C) ↔ Fahrenheit (°F).
+- **Wind Speed**: km/h ↔ mph ↔ m/s.
+- **Pressure**: hPa ↔ inHg.
+- Preferences automatically persisted across sessions (`desktop/storage.py` JSON file on desktop, `localStorage` on web).
+
+### 5. Local Time, Auto-Refresh & Offline Fallback
+- Displays the local time of the searched city.
+- "Last updated X min ago" timestamp with a manual refresh button.
+- Background auto-refresh timer every 10 minutes.
+- **Offline Fallback**: If an internet interruption occurs, the desktop app immediately restores the last cached weather snapshot with an explicit notice (`⚠️ No connection - showing last saved data`).
+
+### 6. Dynamic Atmospheric Themes & Particle Animations
+- Background color gradients and canvas particles dynamically reflect the current WMO weather code and day/night cycle:
+  - ☀️ **Clear Sky**: Sunbeam shimmer.
+  - ☁️ **Cloudy / Overcast**: Drifting clouds.
+  - 🌫️ **Fog**: Soft misty atmosphere.
+  - 🌧️ **Rain / Drizzle**: Falling raindrops with angled trajectory.
+  - ❄️ **Snow**: Swirling snowflakes with sinusoidal horizontal drift.
+  - ⚡ **Thunderstorm**: Heavy rain with lightning flashes.
+- Responsive mobile design reduces particle density on screens under 640px and honors `prefers-reduced-motion`.
 
 ---
 
 ## 📂 Project Organization
 
 ```text
-SkyCast/
+RealTimeWeatherApp/
 ├── desktop/                    # Compulsory Python Tkinter Desktop Application
-│   ├── app.py                  # Main entrypoint
-│   ├── api_client.py           # Threaded Open-Meteo API client
+│   ├── app.py                  # Desktop application entrypoint
+│   ├── api_client.py           # Threaded Open-Meteo client (5s timeout)
+│   ├── storage.py              # Local JSON persistence (units, favorites, cache)
 │   └── ui/
-│       ├── main_window.py      # Tkinter window, Canvas layout & interactions
+│       ├── main_window.py      # Main window, Canvas layout & queue dispatch
 │       ├── panels.py           # Pillow glassmorphism renderer & image cache
-│       ├── animations.py       # Canvas particle animations (rain/snow/clouds)
-│       └── theme.py            # Weather-dependent color palettes & themes
-├── web/                        # Modern Web Application (Deployed to Vercel)
-│   ├── index.html              # Semantic HTML5 dashboard
+│       ├── search_bar.py       # Debounced search & autocomplete dropdown
+│       ├── current_weather.py  # Hero weather card & local time
+│       ├── details_grid.py     # UV, AQI, visibility, dew point, cloud cover tiles
+│       ├── forecast.py         # Hourly chart & 7-day outlook
+│       ├── animations.py       # Canvas 30fps particle engine
+│       └── theme.py            # Weather-dependent gradient palettes
+├── web/                        # Modern Mobile-First Web Application
+│   ├── index.html              # Accessible HTML5 dashboard (<meta viewport>)
 │   ├── css/
-│   │   └── style.css           # Glassmorphism styling & dynamic themes
+│   │   └── style.css           # Mobile-first CSS, glassmorphism & media queries
 │   ├── js/
-│   │   ├── app.js              # Application controller & Geolocation handler
-│   │   └── weather-engine.js   # WMO code mapping & theme classification
-│   ├── api/                    # Vercel Serverless Functions (Python)
-│   │   ├── weather.py          # Weather API proxy
-│   │   ├── geocode.py          # Geocoding & reverse geocoding proxy
-│   │   └── requirements.txt    # Vercel Python runtime dependencies
-│   └── vercel.json             # Sub-directory Vercel deployment configuration
-├── shared/                     # Shared weather engine across platforms
+│   │   ├── app.js              # Application logic & Geolocation controller
+│   │   └── weather-engine.js   # WMO mapping & AQI scales
+├── shared/                     # Shared weather engine logic
 │   ├── __init__.py
-│   └── weather_codes.py        # WMO weather codes, icons & condition descriptions
-├── requirements.txt            # Python dependencies for local desktop execution
-├── vercel.json                 # Root Vercel routing configuration
+│   └── weather_codes.py        # WMO code to condition, icon, theme, and animation
+├── requirements.txt            # Python dependencies (Pillow, requests)
+├── vercel.json                 # Static site configuration (outputDirectory: "web")
 ├── package.json                # Project metadata
-├── .gitignore                  # Professional Git exclusion file
-└── README.md                   # Complete documentation
+├── .gitignore                  # Clean Git exclusion file
+└── README.md                   # Full documentation
 ```
 
 ---
 
-## ⚡ Weather Engine & Condition Themes
+## 💻 Running the Desktop Application
 
-Both applications leverage **Open-Meteo**, a free and open-source weather API that requires no API keys. Weather codes adhere to the World Meteorological Organization (WMO) standards:
-
-| WMO Codes | Condition | Visual Theme | Particle Animation |
-|:---:|:---:|:---:|:---:|
-| `0` | Clear Sky | Sunny / Clear Sky (Day & Night) | Sunbeam shimmer |
-| `1 - 2` | Mainly Clear / Partly Cloudy | Partly Cloudy (Day & Night) | Drifting clouds |
-| `3` | Overcast | Overcast Skies | Soft clouds |
-| `45, 48` | Fog / Depositing Rime Fog | Foggy Horizon | Dense mist |
-| `51 - 65` | Drizzle & Continuous Rain | Rainy Sky | Falling rain drops |
-| `71 - 77` | Snow Fall & Snow Grains | Winter Snow | Swirling snowflakes |
-| `80 - 82` | Rain Showers | Passing Showers | Quick rain streaks |
-| `85 - 86` | Snow Showers | Snow Flurries | Blizzard particles |
-| `95 - 99` | Thunderstorm & Severe Hail | Thunderstorm | Torrential rain + lightning |
-
----
-
-## 🚀 Getting Started
-
-### 1. Running the Desktop Application (Tkinter)
-
-Ensure you have Python 3.10+ installed.
+### Prerequisites
+- Python 3.10+ installed.
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/naaaditya2007-tech/skycast-weather-dashboard.git
 cd skycast-weather-dashboard
 
-# Install required dependencies
+# 2. Install dependencies (Pillow and requests only)
 pip install -r requirements.txt
 
-# Run the Tkinter desktop GUI
+# 3. Launch the desktop GUI
 python desktop/app.py
 ```
 
-### 2. Running the Web Application Locally
+### Keyboard Shortcuts:
+- **Enter**: Search for city in search field.
+- **Escape**: Clear search bar and dismiss autocomplete suggestions.
+- **Down Arrow**: Focus autocomplete dropdown.
 
+---
+
+## 🌐 Running the Web Application
+
+The web version runs purely client-side without any backend server.
+
+### Local Development:
 ```bash
-# Start a local static server inside the web directory
+# Using Python built-in static server
 python -m http.server 3000 --directory web
 
-# Open http://localhost:3000 in your browser
+# Or using Node.js serve
+npx serve web
 ```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Responsive Breakpoints Tested:
+- **320px** (Ultra-compact mobile): Single column, 2-column details grid, zero horizontal overflow.
+- **375px** (Standard mobile): Touch targets $\ge$ 44px, input font-size 16px.
+- **768px** (Tablet): 3-column details grid, horizontal swipe hourly forecast.
+- **1280px** (Desktop): Split layout (Hero & Metrics on left, Forecasts on right).
 
 ---
 
-## 🌐 Live Production Deployment
+## 🔒 Privacy & Data Usage
 
-- **Vercel Production URL**: [https://web-mocha-ten-79.vercel.app](https://web-mocha-ten-79.vercel.app)
-- **GitHub Repository**: [https://github.com/naaaditya2007-tech/skycast-weather-dashboard](https://github.com/naaaditya2007-tech/skycast-weather-dashboard)
-
----
-
-## 🛡️ Privacy & Geolocation Policy
-
-SkyCast prioritizes user privacy:
-1. **No background location tracking**: Geolocation is only accessed on-demand using single-shot `getCurrentPosition`.
-2. **Permission memory**: If the user dismisses or denies location access, SkyCast respects the decision and does not repeatedly prompt.
-3. **No exposed coordinates**: Raw latitude and longitude are never shown to the user or stored on external servers; they are only used to reverse geocode the city name.
-4. **Keyless and secure**: Because Open-Meteo does not require private API keys, no secrets or credentials are baked into client bundles or source control.
+- **Zero Tracking**: SkyCast never records or transmits your browsing activity.
+- **Location Safety**: Geolocation is only retrieved on-demand when the user approves. Raw latitude and longitude coordinates are never displayed on screen and never stored on remote servers.
+- **Keyless Architecture**: By using Open-Meteo's open endpoints, no private API keys are ever stored or exposed.
 
 ---
 
-## 📜 License
+## 📜 Acknowledgments & License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+- Weather forecasts, geocoding, and air quality data generously provided by [Open-Meteo](https://open-meteo.com/).
+- Reverse geocoding provided by [BigDataCloud](https://www.bigdatacloud.net/).
+- Distributed under the **MIT License**. See `LICENSE` for details.

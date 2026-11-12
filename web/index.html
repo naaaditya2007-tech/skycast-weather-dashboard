@@ -2,163 +2,272 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="SkyCast - Real-Time Weather Application with live forecasts, browser geolocation, and atmospheric dynamic themes.">
-  <title>SkyCast — Real-Time Weather Dashboard</title>
+  <meta name="description" content="SkyCast — Real-time weather intelligence with live Open-Meteo forecasts, air quality, hourly trends, and glassmorphism UI.">
+  <title>SkyCast — Real-Time Weather Application</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌤️</text></svg>">
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="theme-partly-cloudy-day">
-  <!-- Particle & Weather Animation Canvas Background -->
+<body class="theme-cloudy-day">
+  <!-- Particle Canvas Overlay for Atmospheric Weather Animations -->
   <canvas id="weatherCanvas" class="weather-canvas" aria-hidden="true"></canvas>
 
   <div class="app-layout">
-    <!-- Top Header & Navigation -->
+    <!-- Header with Branding, Search, and Unit Controls -->
     <header class="app-header glass-panel">
-      <div class="brand">
-        <span class="brand-sparkle">✦</span>
-        <div class="brand-text">
-          <h1>SkyCast</h1>
-          <p class="brand-tagline">Real-Time Weather Intelligence</p>
+      <div class="brand-row">
+        <div class="brand">
+          <span class="brand-sparkle" aria-hidden="true">✦</span>
+          <div class="brand-text">
+            <h1>SkyCast</h1>
+            <p class="brand-tagline">Real-Time Weather Intelligence</p>
+          </div>
+        </div>
+
+        <!-- Quick Location & Unit Controls -->
+        <div class="header-toggles">
+          <button type="button" id="locBtn" class="btn btn-glass" title="Use my location">
+            <span class="btn-icon">📍</span>
+            <span class="btn-text">My Location</span>
+          </button>
+          
+          <!-- Temperature Unit Toggle (°C / °F) -->
+          <div class="toggle-group" role="group" aria-label="Temperature Unit">
+            <button type="button" id="unitC" class="toggle-btn active" data-unit="celsius">°C</button>
+            <button type="button" id="unitF" class="toggle-btn" data-unit="fahrenheit">°F</button>
+          </div>
+
+          <!-- Wind Unit Toggle (km/h, mph, m/s) -->
+          <div class="toggle-group" role="group" aria-label="Wind Unit">
+            <button type="button" id="windKmh" class="toggle-btn active" data-wind="kmh">km/h</button>
+            <button type="button" id="windMph" class="toggle-btn" data-wind="mph">mph</button>
+            <button type="button" id="windMs" class="toggle-btn" data-wind="ms">m/s</button>
+          </div>
+
+          <!-- Pressure Unit Toggle (hPa, inHg) -->
+          <div class="toggle-group" role="group" aria-label="Pressure Unit">
+            <button type="button" id="pressHpa" class="toggle-btn active" data-press="hPa">hPa</button>
+            <button type="button" id="pressInhg" class="toggle-btn" data-press="inHg">inHg</button>
+          </div>
         </div>
       </div>
 
-      <!-- Search & Controls -->
-      <div class="header-controls">
+      <!-- Search Bar with Autocomplete & Recent Searches -->
+      <div class="search-row">
         <form id="searchForm" class="search-form" role="search" onsubmit="return false;">
           <div class="search-input-wrapper">
             <span class="search-icon" aria-hidden="true">🔍</span>
             <input 
               type="text" 
               id="cityInput" 
-              placeholder="Search city (e.g. London, Tokyo, Paris)..." 
+              placeholder="Search city (e.g. London, Tokyo, New York)..." 
               autocomplete="off" 
               spellcheck="false" 
               aria-label="Search city"
             >
-            <button type="button" id="clearSearchBtn" class="clear-btn" aria-label="Clear search" hidden>✕</button>
+            <button type="button" id="clearSearchBtn" class="clear-btn" aria-label="Clear search input" hidden>✕</button>
             <div id="autocompleteList" class="autocomplete-dropdown" role="listbox" hidden></div>
           </div>
-          <button type="submit" id="searchBtn" class="btn btn-primary">Search</button>
+          <button type="submit" id="searchSubmitBtn" class="btn btn-primary">Search</button>
         </form>
 
-        <div class="quick-actions">
-          <button type="button" id="locBtn" class="btn btn-glass" title="Detect your current location">
-            <span class="btn-icon">📍</span> <span class="btn-text">My Location</span>
-          </button>
-          <button type="button" id="refreshBtn" class="btn btn-glass" title="Refresh weather data">
-            <span class="btn-icon">🔄</span> <span class="btn-text">Refresh</span>
-          </button>
-          <div class="unit-toggle" role="group" aria-label="Temperature unit toggle">
-            <button type="button" id="unitCelsius" class="unit-btn active" data-unit="celsius">°C</button>
-            <button type="button" id="unitFahrenheit" class="unit-btn" data-unit="fahrenheit">°F</button>
-          </div>
+        <!-- Recent Searches Dropdown / Chips -->
+        <div id="recentSearches" class="recent-searches" aria-label="Recent searches">
+          <!-- Populated dynamically via JavaScript -->
         </div>
       </div>
     </header>
 
-    <!-- Notification Banner (for Geolocation / Alerts) -->
+    <!-- Notification Banner (Geolocation status, Offline alert, Feedback) -->
     <div id="statusBanner" class="status-banner" role="status" hidden>
       <span id="bannerIcon" class="banner-icon">ℹ️</span>
       <span id="bannerText" class="banner-text">Welcome to SkyCast.</span>
-      <button type="button" id="closeBannerBtn" class="banner-close" aria-label="Close notification">✕</button>
+      <button type="button" id="closeBannerBtn" class="banner-close" aria-label="Close message">✕</button>
     </div>
 
-    <!-- Main Weather Dashboard Content -->
+    <!-- Main Dashboard Grid -->
     <main class="dashboard-grid">
-      <!-- Left Hero Column -->
-      <section class="hero-section">
-        <div class="hero-card glass-panel">
+      <!-- Left Column: Hero Current Weather Card & Extra Detail Tiles -->
+      <section class="left-column">
+        <!-- Hero Card -->
+        <article class="hero-card glass-panel">
           <div class="hero-header">
-            <div class="location-info">
+            <div>
               <h2 id="cityName" class="city-name">📍 London</h2>
-              <p id="locationDetail" class="location-detail">United Kingdom • Thursday, 12 Nov</p>
+              <p id="localTime" class="local-time">United Kingdom • Thursday, 12 Nov • 08:30 PM</p>
             </div>
-            <div id="weatherBadge" class="weather-badge">Live Conditions</div>
+            <div class="hero-badges">
+              <span id="weatherBadge" class="weather-badge">Live</span>
+            </div>
           </div>
 
           <div class="hero-body">
-            <div class="temp-display">
-              <span id="weatherIcon" class="hero-weather-icon" role="img" aria-label="Current condition">🌤️</span>
-              <div class="temp-numbers">
-                <span id="currentTemp" class="temp-value">--</span>
-                <span id="tempUnit" class="temp-unit">°C</span>
+            <div class="temp-section">
+              <span id="weatherIcon" class="hero-icon" role="img" aria-label="Weather condition icon">🌤️</span>
+              <div class="temp-digits">
+                <span id="currentTemp" class="temp-val">--</span>
+                <span id="tempSymbol" class="temp-sym">°C</span>
               </div>
             </div>
-            <div class="condition-summary">
-              <h3 id="conditionTitle" class="condition-title">Loading live data...</h3>
+            <div class="condition-section">
+              <h3 id="conditionTitle" class="condition-title">Loading live forecast...</h3>
               <p id="feelsLike" class="feels-like">Feels like --°C</p>
             </div>
           </div>
 
-          <!-- 4 Highlight Metric Cards -->
-          <div class="metrics-grid">
-            <div class="metric-card glass-subcard">
-              <span class="metric-icon">💧</span>
-              <div class="metric-meta">
-                <span class="metric-label">Humidity</span>
-                <span id="humidityVal" class="metric-value">--%</span>
-              </div>
-            </div>
-            <div class="metric-card glass-subcard">
-              <span class="metric-icon">💨</span>
-              <div class="metric-meta">
-                <span class="metric-label">Wind</span>
-                <span id="windVal" class="metric-value">-- km/h</span>
-              </div>
-            </div>
-            <div class="metric-card glass-subcard">
-              <span class="metric-icon">⏲</span>
-              <div class="metric-meta">
-                <span class="metric-label">Pressure</span>
-                <span id="pressureVal" class="metric-value">-- hPa</span>
-              </div>
-            </div>
-            <div class="metric-card glass-subcard">
-              <span class="metric-icon">🌧</span>
-              <div class="metric-meta">
-                <span class="metric-label">Precipitation</span>
-                <span id="precipVal" class="metric-value">-- mm</span>
-              </div>
-            </div>
+          <div class="hero-footer">
+            <span id="lastUpdated" class="last-updated">● Updated just now</span>
+            <button type="button" id="manualRefreshBtn" class="btn-text-action" title="Refresh live weather">🔄 Refresh</button>
           </div>
-        </div>
+        </article>
 
-        <!-- Hourly Forecast Section -->
-        <div class="hourly-section glass-panel">
-          <div class="section-header">
-            <h3>⏱ Hourly Forecast (Next 24 Hours)</h3>
-            <span class="subtext">Scroll horizontally for timeline</span>
+        <!-- Extra Detail Tiles Grid (UV, Air Quality, Visibility, Cloud Cover, Dew Point, Sunrise/Sunset) -->
+        <section class="details-section">
+          <h3 class="section-title">📊 Atmospheric & Environmental Metrics</h3>
+          <div class="details-grid">
+            <!-- 1. UV Index -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">☀️</span>
+                <span class="tile-label">UV INDEX</span>
+              </div>
+              <div class="tile-content">
+                <span id="uvVal" class="tile-val">--</span>
+                <span id="uvBadge" class="tile-badge">Low</span>
+              </div>
+            </div>
+
+            <!-- 2. Air Quality Index -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">🍃</span>
+                <span class="tile-label">AIR QUALITY</span>
+              </div>
+              <div class="tile-content">
+                <span id="aqiVal" class="tile-val">AQI --</span>
+                <span id="aqiBadge" class="tile-badge">Good</span>
+              </div>
+            </div>
+
+            <!-- 3. Humidity -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">💧</span>
+                <span class="tile-label">HUMIDITY</span>
+              </div>
+              <div class="tile-content">
+                <span id="humidityVal" class="tile-val">--%</span>
+              </div>
+            </div>
+
+            <!-- 4. Wind -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">💨</span>
+                <span class="tile-label">WIND</span>
+              </div>
+              <div class="tile-content">
+                <span id="windVal" class="tile-val">-- km/h</span>
+                <span id="windDir" class="tile-sub">--</span>
+              </div>
+            </div>
+
+            <!-- 5. Pressure -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">⏲</span>
+                <span class="tile-label">PRESSURE</span>
+              </div>
+              <div class="tile-content">
+                <span id="pressureVal" class="tile-val">-- hPa</span>
+              </div>
+            </div>
+
+            <!-- 6. Visibility -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">👁️</span>
+                <span class="tile-label">VISIBILITY</span>
+              </div>
+              <div class="tile-content">
+                <span id="visibilityVal" class="tile-val">-- km</span>
+              </div>
+            </div>
+
+            <!-- 7. Cloud Cover -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">☁️</span>
+                <span class="tile-label">CLOUD COVER</span>
+              </div>
+              <div class="tile-content">
+                <span id="cloudVal" class="tile-val">--%</span>
+              </div>
+            </div>
+
+            <!-- 8. Dew Point -->
+            <div class="detail-tile glass-subcard">
+              <div class="tile-header">
+                <span class="tile-icon">🌡️</span>
+                <span class="tile-label">DEW POINT</span>
+              </div>
+              <div class="tile-content">
+                <span id="dewVal" class="tile-val">--°C</span>
+              </div>
+            </div>
+
+            <!-- 9. Sunrise & Sunset -->
+            <div class="detail-tile glass-subcard span-two">
+              <div class="tile-header">
+                <span class="tile-icon">🌅</span>
+                <span class="tile-label">SUNRISE & SUNSET</span>
+              </div>
+              <div class="tile-content sun-row">
+                <span>Sunrise: <strong id="sunriseVal">--:--</strong></span>
+                <span>Sunset: <strong id="sunsetVal">--:--</strong></span>
+              </div>
+            </div>
           </div>
-          <div id="hourlyContainer" class="hourly-slider">
-            <!-- Populated via JavaScript -->
-          </div>
-        </div>
+        </section>
       </section>
 
-      <!-- Right 7-Day Forecast Column -->
-      <section class="forecast-section glass-panel">
-        <div class="section-header">
-          <h3>📅 7-Day Outlook</h3>
-          <span class="subtext">Daily high / low & rain probability</span>
-        </div>
-        <div id="dailyContainer" class="daily-list">
-          <!-- Populated via JavaScript -->
-        </div>
+      <!-- Right Column: 24h Hourly Forecast Slider & 7-Day Outlook -->
+      <section class="right-column">
+        <!-- 24-Hour Hourly Forecast Slider (Horizontal Swipe on Mobile) -->
+        <section class="hourly-card glass-panel">
+          <div class="section-header">
+            <h3 class="section-title">⏱ 24-Hour Forecast & Rain Chance</h3>
+            <span class="section-hint">Scroll horizontally</span>
+          </div>
+          <div id="hourlySlider" class="hourly-slider" tabindex="0" role="region" aria-label="Hourly weather timeline">
+            <!-- Populated via JavaScript -->
+          </div>
+        </section>
+
+        <!-- 7-Day Outlook List -->
+        <section class="forecast-card glass-panel">
+          <div class="section-header">
+            <h3 class="section-title">📅 7-Day Extended Forecast</h3>
+            <span class="section-hint">High / Low & Rain Probability</span>
+          </div>
+          <div id="dailyList" class="daily-list">
+            <!-- Populated via JavaScript -->
+          </div>
+        </section>
       </section>
     </main>
 
     <!-- Footer -->
     <footer class="app-footer">
-      <p>✦ SkyCast Weather Dashboard • Live data powered by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo API</a> (Keyless, Free & Open-Source)</p>
+      <p>✦ <strong>SkyCast</strong> Real-Time Weather Application • Live data from <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> • Privacy first: No tracking, no stored coordinates.</p>
     </footer>
   </div>
 
-  <!-- Loading Overlay -->
+  <!-- Loading State Spinner -->
   <div id="loadingOverlay" class="loading-overlay" hidden>
     <div class="spinner"></div>
-    <p id="loadingMessage">Fetching live weather data...</p>
+    <p id="loadingText">Retrieving live weather...</p>
   </div>
 
   <script type="module" src="js/app.js"></script>
