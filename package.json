@@ -1,0 +1,12 @@
+{
+  "name": "skycast-weather-dashboard",
+  "version": "1.0.0",
+  "description": "SkyCast - Real-Time Weather Application (Tkinter Desktop & Modern Web Dashboard)",
+  "main": "web/index.html",
+  "scripts": {
+    "start": "npx serve web"
+  },
+  "keywords": ["weather", "tkinter", "open-meteo", "python", "javascript"],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="SkyCast - Real-Time Weather Application with live forecasts, browser geolocation, and atmospheric dynamic themes.">
+  <title>SkyCast — Real-Time Weather Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌤️</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="theme-partly-cloudy-day">
+  <!-- Particle & Weather Animation Canvas Background -->
+  <canvas id="weatherCanvas" class="weather-canvas" aria-hidden="true"></canvas>
+
+  <div class="app-layout">
+    <!-- Top Header & Navigation -->
+    <header class="app-header glass-panel">
+      <div class="brand">
+        <span class="brand-sparkle">✦</span>
+        <div class="brand-text">
+          <h1>SkyCast</h1>
+          <p class="brand-tagline">Real-Time Weather Intelligence</p>
+        </div>
+      </div>
+
+      <!-- Search & Controls -->
+      <div class="header-controls">
+        <form id="searchForm" class="search-form" role="search" onsubmit="return false;">
+          <div class="search-input-wrapper">
+            <span class="search-icon" aria-hidden="true">🔍</span>
+            <input 
+              type="text" 
+              id="cityInput" 
+              placeholder="Search city (e.g. London, Tokyo, Paris)..." 
+              autocomplete="off" 
+              spellcheck="false" 
+              aria-label="Search city"
+            >
+            <button type="button" id="clearSearchBtn" class="clear-btn" aria-label="Clear search" hidden>✕</button>
+            <div id="autocompleteList" class="autocomplete-dropdown" role="listbox" hidden></div>
+          </div>
+          <button type="submit" id="searchBtn" class="btn btn-primary">Search</button>
+        </form>
+
+        <div class="quick-actions">
+          <button type="button" id="locBtn" class="btn btn-glass" title="Detect your current location">
+            <span class="btn-icon">📍</span> <span class="btn-text">My Location</span>
+          </button>
+          <button type="button" id="refreshBtn" class="btn btn-glass" title="Refresh weather data">
+            <span class="btn-icon">🔄</span> <span class="btn-text">Refresh</span>
+          </button>
+          <div class="unit-toggle" role="group" aria-label="Temperature unit toggle">
+            <button type="button" id="unitCelsius" class="unit-btn active" data-unit="celsius">°C</button>
+            <button type="button" id="unitFahrenheit" class="unit-btn" data-unit="fahrenheit">°F</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Notification Banner (for Geolocation / Alerts) -->
+    <div id="statusBanner" class="status-banner" role="status" hidden>
+      <span id="bannerIcon" class="banner-icon">ℹ️</span>
+      <span id="bannerText" class="banner-text">Welcome to SkyCast.</span>
+      <button type="button" id="closeBannerBtn" class="banner-close" aria-label="Close notification">✕</button>
+    </div>
+
+    <!-- Main Weather Dashboard Content -->
+    <main class="dashboard-grid">
+      <!-- Left Hero Column -->
+      <section class="hero-section">
+        <div class="hero-card glass-panel">
+          <div class="hero-header">
+            <div class="location-info">
+              <h2 id="cityName" class="city-name">📍 London</h2>
+              <p id="locationDetail" class="location-detail">United Kingdom • Thursday, 12 Nov</p>
+            </div>
+            <div id="weatherBadge" class="weather-badge">Live Conditions</div>
+          </div>
+
+          <div class="hero-body">
+            <div class="temp-display">
+              <span id="weatherIcon" class="hero-weather-icon" role="img" aria-label="Current condition">🌤️</span>
+              <div class="temp-numbers">
+                <span id="currentTemp" class="temp-value">--</span>
+                <span id="tempUnit" class="temp-unit">°C</span>
+              </div>
+            </div>
+            <div class="condition-summary">
+              <h3 id="conditionTitle" class="condition-title">Loading live data...</h3>
+              <p id="feelsLike" class="feels-like">Feels like --°C</p>
+            </div>
+          </div>
+
+          <!-- 4 Highlight Metric Cards -->
+          <div class="metrics-grid">
+            <div class="metric-card glass-subcard">
+              <span class="metric-icon">💧</span>
+              <div class="metric-meta">
+                <span class="metric-label">Humidity</span>
+                <span id="humidityVal" class="metric-value">--%</span>
+              </div>
+            </div>
+            <div class="metric-card glass-subcard">
+              <span class="metric-icon">💨</span>
+              <div class="metric-meta">
+                <span class="metric-label">Wind</span>
+                <span id="windVal" class="metric-value">-- km/h</span>
+              </div>
+            </div>
+            <div class="metric-card glass-subcard">
+              <span class="metric-icon">⏲</span>
+              <div class="metric-meta">
+                <span class="metric-label">Pressure</span>
+                <span id="pressureVal" class="metric-value">-- hPa</span>
+              </div>
+            </div>
+            <div class="metric-card glass-subcard">
+              <span class="metric-icon">🌧</span>
+              <div class="metric-meta">
+                <span class="metric-label">Precipitation</span>
+                <span id="precipVal" class="metric-value">-- mm</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hourly Forecast Section -->
+        <div class="hourly-section glass-panel">
+          <div class="section-header">
+            <h3>⏱ Hourly Forecast (Next 24 Hours)</h3>
+            <span class="subtext">Scroll horizontally for timeline</span>
+          </div>
+          <div id="hourlyContainer" class="hourly-slider">
+            <!-- Populated via JavaScript -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Right 7-Day Forecast Column -->
+      <section class="forecast-section glass-panel">
+        <div class="section-header">
+          <h3>📅 7-Day Outlook</h3>
+          <span class="subtext">Daily high / low & rain probability</span>
+        </div>
+        <div id="dailyContainer" class="daily-list">
+          <!-- Populated via JavaScript -->
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>✦ SkyCast Weather Dashboard • Live data powered by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo API</a> (Keyless, Free & Open-Source)</p>
+    </footer>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay" hidden>
+    <div class="spinner"></div>
+    <p id="loadingMessage">Fetching live weather data...</p>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

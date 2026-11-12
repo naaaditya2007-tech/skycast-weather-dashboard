@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/weather", "destination": "/web/api/weather.py" },
+    { "source": "/api/geocode", "destination": "/web/api/geocode.py" },
+    { "source": "/((?!api/|web/).*)", "destination": "/web/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "s-maxage=120, stale-while-revalidate=300" }
+      ]
+    }
+  ]
+}
