@@ -12,6 +12,10 @@ from PIL import Image, ImageDraw, ImageTk
 
 _ICON_CACHE: Dict[Tuple[str, int], ImageTk.PhotoImage] = {}
 
+def clear_icon_cache():
+    """Clear cached icon PhotoImages (e.g. between Tk root instances)."""
+    _ICON_CACHE.clear()
+
 def get_weather_icon_image(icon_name: str, size: int = 32) -> ImageTk.PhotoImage:
     """Return a cached PhotoImage for the given weather icon and pixel size."""
     cache_key = (icon_name.lower(), size)
@@ -101,36 +105,53 @@ def get_weather_icon_image(icon_name: str, size: int = 32) -> ImageTk.PhotoImage
             draw.ellipse([sx - 2 * scale, sy - 2 * scale, sx + 2 * scale, sy + 2 * scale], fill=(255, 255, 255, 250))
 
     elif "wind" in name:
-        # Elegant flowing wind streaks
-        color = (199, 210, 254, 230)
-        lw = max(2 * scale, 2)
-        # Line 1
-        draw.arc([int(w * 0.15), int(w * 0.30), int(w * 0.75), int(w * 0.55)], start=180, end=0, fill=color, width=lw)
-        draw.arc([int(w * 0.65), int(w * 0.30), int(w * 0.85), int(w * 0.45)], start=0, end=270, fill=color, width=lw)
-        # Line 2
-        draw.arc([int(w * 0.22), int(w * 0.55), int(w * 0.85), int(w * 0.78)], start=180, end=0, fill=color, width=lw)
+        # Elegant flowing wind streaks with dark contrast backing and bright foreground
+        shadow_color = (15, 23, 42, 220)
+        fore_color = (255, 255, 255, 255)
+        sw = max(3 * scale, 3)
+        fw = max(2 * scale, 2)
+        so = 1 * scale
+
+        # Shadow passes
+        draw.arc([int(w * 0.15) + so, int(w * 0.30) + so, int(w * 0.75) + so, int(w * 0.55) + so], start=180, end=0, fill=shadow_color, width=sw)
+        draw.arc([int(w * 0.65) + so, int(w * 0.30) + so, int(w * 0.85) + so, int(w * 0.45) + so], start=0, end=270, fill=shadow_color, width=sw)
+        draw.arc([int(w * 0.22) + so, int(w * 0.55) + so, int(w * 0.85) + so, int(w * 0.78) + so], start=180, end=0, fill=shadow_color, width=sw)
+
+        # Foreground crisp white passes
+        draw.arc([int(w * 0.15), int(w * 0.30), int(w * 0.75), int(w * 0.55)], start=180, end=0, fill=fore_color, width=fw)
+        draw.arc([int(w * 0.65), int(w * 0.30), int(w * 0.85), int(w * 0.45)], start=0, end=270, fill=fore_color, width=fw)
+        draw.arc([int(w * 0.22), int(w * 0.55), int(w * 0.85), int(w * 0.78)], start=180, end=0, fill=fore_color, width=fw)
 
     elif "humidity" in name or "drop" in name:
-        # Glossy cyan water droplet
+        # Glossy cyan water droplet with dark outline and white reflection
         cx = w // 2
         top_y = int(w * 0.16)
         r = int(w * 0.28)
         cy = int(w * 0.60)
+        # Shadow/dark stroke backing
+        draw.ellipse([cx - r - scale, cy - r - scale, cx + r + scale, cy + r + scale], fill=(15, 23, 42, 180))
+        pts_s = [(cx, top_y - scale), (cx - r - scale, cy), (cx + r + scale, cy)]
+        draw.polygon(pts_s, fill=(15, 23, 42, 180))
         # Teardrop body
-        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(56, 189, 248, 240))
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(56, 189, 248, 255))
         pts = [(cx, top_y), (cx - r + 3 * scale, cy), (cx + r - 3 * scale, cy)]
-        draw.polygon(pts, fill=(56, 189, 248, 240))
+        draw.polygon(pts, fill=(56, 189, 248, 255))
         # Gloss highlight
-        draw.ellipse([cx - int(r * 0.55), cy - int(r * 0.45), cx - int(r * 0.15), cy - int(r * 0.15)], fill=(255, 255, 255, 180))
+        draw.ellipse([cx - int(r * 0.55), cy - int(r * 0.45), cx - int(r * 0.15), cy - int(r * 0.15)], fill=(255, 255, 255, 220))
 
     elif "visibility" in name or "haze" in name or "fog" in name:
-        # Layered misty haze horizontal pill lines
-        color = (226, 232, 240, 230)
-        lw = max(3 * scale, 3)
+        # Layered misty haze horizontal pill lines with dark backing
+        shadow_col = (15, 23, 42, 200)
+        fore_col = (255, 255, 255, 255)
+        sw = max(4 * scale, 4)
+        fw = max(3 * scale, 3)
         y_lines = [int(w * 0.35), int(w * 0.50), int(w * 0.65), int(w * 0.80)]
         widths = [(0.20, 0.80), (0.12, 0.88), (0.24, 0.76), (0.32, 0.68)]
+        so = 1 * scale
         for yl, (x1f, x2f) in zip(y_lines, widths):
-            draw.line([(int(w * x1f), yl), (int(w * x2f), yl)], fill=color, width=lw)
+            draw.line([(int(w * x1f) + so, yl + so), (int(w * x2f) + so, yl + so)], fill=shadow_col, width=sw)
+        for yl, (x1f, x2f) in zip(y_lines, widths):
+            draw.line([(int(w * x1f), yl), (int(w * x2f), yl)], fill=fore_col, width=fw)
 
     else:
         # Generic cloud
@@ -143,17 +164,27 @@ def get_weather_icon_image(icon_name: str, size: int = 32) -> ImageTk.PhotoImage
     return photo
 
 def _draw_cloud(draw: ImageDraw.ImageDraw, w: int, scale: int, offset_y: int = 0,
-                fill: Tuple[int, int, int, int] = (255, 255, 255, 245),
+                fill: Tuple[int, int, int, int] = (255, 255, 255, 255),
                 scale_factor: float = 1.0):
-    """Draw a smooth puffy cloud shape."""
+    """Draw a smooth puffy cloud shape with dark contrast backing for glass."""
     cy = int(w * 0.54) + offset_y
     r_main = int(w * 0.20 * scale_factor)
     r_left = int(w * 0.15 * scale_factor)
     r_right = int(w * 0.14 * scale_factor)
     
     cx = w // 2
-    # Bottom rounded bar
     base_h = int(r_main * 0.9)
+    so = 1 * scale
+
+    # Dark shadow backing pass
+    shadow_fill = (15, 23, 42, 140)
+    draw.rounded_rectangle([cx - int(r_main * 1.5) + so, cy + so, cx + int(r_main * 1.5) + so, cy + base_h + so],
+                           radius=int(base_h // 2), fill=shadow_fill)
+    draw.ellipse([cx - r_main + so, cy - int(r_main * 0.8) + so, cx + r_main + so, cy + r_main + so], fill=shadow_fill)
+    draw.ellipse([cx - int(r_main * 1.5) + so, cy - int(r_left * 0.4) + so, cx - int(r_main * 0.1) + so, cy + r_left + int(r_left * 0.4) + so], fill=shadow_fill)
+    draw.ellipse([cx + int(r_main * 0.2) + so, cy - int(r_right * 0.3) + so, cx + int(r_main * 1.5) + so, cy + r_right + int(r_right * 0.4) + so], fill=shadow_fill)
+
+    # Foreground crisp cloud pass
     draw.rounded_rectangle([cx - int(r_main * 1.5), cy, cx + int(r_main * 1.5), cy + base_h],
                            radius=int(base_h // 2), fill=fill)
     # 3 Puffs

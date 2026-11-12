@@ -94,41 +94,23 @@ class OtherCitiesPanel:
 
             max_text_w = max(width - 65, 80)
 
-            # Country label (high contrast, crisp silver)
+            # Country label (high contrast, crisp light silver with subtle shadow)
             country_raw = c.get("country", "")
             country_text = truncate_text(fonts["small_bold"], country_raw, max_text_w)
-            self.canvas.create_text(
-                x + 16, cy + 15,
-                text=country_text,
-                font=fonts["small_bold"],
-                fill="#CBD5E1",
-                anchor="w",
-                tags=("ui_element", card_tag)
-            )
+            self.canvas.create_text(x + 17, cy + 16, text=country_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + 15, text=country_text, font=fonts["small_bold"], fill="#F1F5F9", anchor="w", tags=("ui_element", card_tag))
 
-            # City name (bold, bright white)
+            # City name (bold, bright white with subtle shadow)
             city_raw = c.get("city") or c.get("name", "")
             city_text = truncate_text(fonts["body_bold"], city_raw, max_text_w)
-            self.canvas.create_text(
-                x + 16, cy + 32,
-                text=city_text,
-                font=fonts["body_bold"],
-                fill="#FFFFFF",
-                anchor="w",
-                tags=("ui_element", card_tag)
-            )
+            self.canvas.create_text(x + 17, cy + 33, text=city_text, font=fonts["body_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + 32, text=city_text, font=fonts["body_bold"], fill="#FFFFFF", anchor="w", tags=("ui_element", card_tag))
 
-            # Condition text (soft cyan / light text)
+            # Condition text (light grey with subtle shadow, replacing pale blue)
             cond_raw = c.get("condition", "Clear")
-            cond_text = truncate_text(fonts["small"], cond_raw, max_text_w)
-            self.canvas.create_text(
-                x + 16, cy + card_h - 13,
-                text=cond_text,
-                font=fonts["small"],
-                fill="#93C5FD",
-                anchor="w",
-                tags=("ui_element", card_tag)
-            )
+            cond_text = truncate_text(fonts["small_bold"], cond_raw, max_text_w)
+            self.canvas.create_text(x + 17, cy + card_h - 12, text=cond_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + card_h - 13, text=cond_text, font=fonts["small_bold"], fill="#E2E8F0", anchor="w", tags=("ui_element", card_tag))
 
             # Weather Icon on right (soft colored Pillow vector icon)
             icon_kind = c.get("icon") or cond_raw

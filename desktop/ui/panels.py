@@ -50,24 +50,26 @@ def render_frosted_glass_panel(bg_image: Image.Image,
                                x: int, y: int,
                                width: int, height: int,
                                radius: int = 18,
-                               blur_radius: int = 16,
-                               tint_opacity: float = 0.18,
-                               border_opacity: int = 85) -> ImageTk.PhotoImage:
+                               blur_radius: int = 18,
+                               tint_opacity: float = 0.25,
+                               dark_overlay_opacity: float = 0.35,
+                               border_opacity: int = 110) -> ImageTk.PhotoImage:
     """
-    Creates an authentic frosted glass panel:
+    Creates an authentic frosted glass panel with enhanced readability:
     1. Crops background under (x, y, x + width, y + height).
     2. Blurs the cropped patch with GaussianBlur.
-    3. Overlays white tint at 15-20% opacity.
-    4. Masks with rounded rectangle.
-    5. Adds a thin, lighter 1px border.
+    3. Composites a dark readability base layer (knocks back bright daylight skies).
+    4. Overlays a 25% white frosted glass sheen highlight.
+    5. Masks with an anti-aliased rounded rectangle.
+    6. Strokes a crisp thin 1px border.
     """
     w = max(int(width), 10)
     h = max(int(height), 10)
     x = max(int(x), 0)
     y = max(int(y), 0)
 
-    # Unique cache key for this panel geometry
-    cache_key = f"glass_{x}_{y}_{w}_{h}_{radius}_{blur_radius}_{tint_opacity}"
+    # Unique cache key for this panel geometry and styling
+    cache_key = f"glass_{x}_{y}_{w}_{h}_{radius}_{blur_radius}_{tint_opacity}_{dark_overlay_opacity}_{border_opacity}"
     if cache_key in _PANEL_CACHE:
         return _PANEL_CACHE[cache_key]
 
@@ -84,18 +86,24 @@ def render_frosted_glass_panel(bg_image: Image.Image,
     # 1. Apply Gaussian diffusion
     blurred = cropped.filter(ImageFilter.GaussianBlur(blur_radius)).convert("RGBA")
 
-    # 2. Translucent white glass tint overlay (15-20% opacity)
+    # 2. Dark readability overlay to ensure contrast on bright daylight photos
+    if dark_overlay_opacity > 0:
+        dark_alpha = int(255 * dark_overlay_opacity)
+        dark_layer = Image.new("RGBA", (w, h), (15, 23, 42, dark_alpha))
+        blurred = Image.alpha_composite(blurred, dark_layer)
+
+    # 3. Translucent white glass sheen overlay (about 25% white over darkened blur)
     alpha_tint = int(255 * tint_opacity)
     tint_layer = Image.new("RGBA", (w, h), (255, 255, 255, alpha_tint))
     tinted = Image.alpha_composite(blurred, tint_layer)
 
-    # 3. Create anti-aliased rounded rectangle mask
+    # 4. Create anti-aliased rounded rectangle mask
     mask = Image.new("L", (w, h), 0)
     draw_mask = ImageDraw.Draw(mask)
     draw_mask.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
     tinted.putalpha(mask)
 
-    # 4. Stroke thin lighter border
+    # 5. Stroke thin lighter border
     draw_panel = ImageDraw.Draw(tinted)
     draw_panel.rounded_rectangle(
         [0, 0, w - 1, h - 1],
@@ -104,7 +112,7 @@ def render_frosted_glass_panel(bg_image: Image.Image,
         width=1
     )
 
-    # 5. Convert to PhotoImage and cache
+    # 6. Convert to PhotoImage and cache
     photo = ImageTk.PhotoImage(tinted)
     _PANEL_CACHE[cache_key] = photo
 
@@ -118,6 +126,11 @@ def clear_panel_cache():
     """Clear cached PhotoImages when theme or background changes."""
     _PANEL_CACHE.clear()
     _BG_CACHE.clear()
+    try:
+        from desktop.ui.icons import clear_icon_cache
+        clear_icon_cache()
+    except Exception:
+        pass
 
 # Backward-compatibility aliases
 get_gradient_image = generate_procedural_background
