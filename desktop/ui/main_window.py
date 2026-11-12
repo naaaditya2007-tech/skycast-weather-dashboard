@@ -1,32 +1,51 @@
 """
-SkyCast Desktop UI — Main Application Window
---------------------------------------------
-Orchestrates all Tkinter components:
-- Responsive Canvas layout with Pillow glassmorphism panels (1100x750 default, min 800x600)
-- Asynchronous Open-Meteo network requests (never freezes the GUI)
-- Settings & Favorites persistence via `storage.py`
-- Offline fallback to cached weather data
-- 10-minute auto-refresh cycle with manual refresh trigger
-- Unit conversions (°C/°F, wind km/h/mph/m/s, pressure hPa/inHg)
-- Weather particle animations (rain, snow, clouds, thunderstorm with lightning flash)
+SkyCast Desktop UI — Main Application Window (Stage 3)
+------------------------------------------------------
+Faithfully replicates the reference design layout and frosted-glass aesthetic:
+- 3-Column Desktop Layout:
+  1. Top: Full-width rounded glass navigation bar (Hamburger, SkyCast, Pill Search, °C/°F, Settings Gear).
+  2. Left Column: Large Hero Weather Card (City, local time, large temp, condition, feels like, summary).
+  3. Middle Column: Forecast Card with Today / Week / 16 Days tabs above horizontal mini-cards.
+  4. Lower Span: 'Overview' grid of frosted tiles (Humidity, UV Index with gradient bar, Visibility, Wind, Pressure, AQI, etc.).
+  5. Right Column: 'Other Cities' vertical stacked cards with country, city, condition, and weather icon.
+- True Optical Frosted Glass:
+  Uses Pillow to crop background, apply Gaussian blur, composite translucent white tint (15-20%),
+  and mask with anti-aliased rounded rectangle. Panels render once and re-render ONLY on resize/theme changes.
+- Windows DPI-Awareness:
+  Enforces crisp rendering on high-DPI displays.
+- Window geometry: 1100x750 default, minsize 800x600.
 """
 
-import tkinter as tk
-from tkinter import font as tkfont
+import sys
+import os
 import time
 import queue
-from typing import Dict, Any, Optional, List
+import tkinter as tk
+from tkinter import font as tkfont
+from typing import Dict, Any, List, Optional
+from PIL import Image, ImageTk
 
-from shared.weather_codes import get_weather_info
+# Windows High-DPI Awareness
+if sys.platform == "win32":
+    try:
+        import ctypes
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+from shared.weather_codes import resolve_theme, get_aqi_level, get_uv_level
 from desktop.storage import StorageManager
 from desktop.api_client import WeatherApiClient
-from desktop.ui.theme import get_theme, DEFAULT_THEME
-from desktop.ui.panels import get_gradient_image, create_glass_card
+from desktop.ui.panels import (
+    generate_procedural_background,
+    render_frosted_glass_panel,
+    clear_panel_cache
+)
 from desktop.ui.animations import WeatherAnimator
-from desktop.ui.search_bar import SearchBar
-from desktop.ui.current_weather import CurrentWeatherCard
-from desktop.ui.details_grid import DetailsGrid
-from desktop.ui.forecast import ForecastView
+from desktop.ui.other_cities import OtherCitiesPanel, PLACEHOLDER_OTHER_CITIES
 
 class SkyCastMainWindow(tk.Tk):
     def __init__(self):
@@ -36,7 +55,7 @@ class SkyCastMainWindow(tk.Tk):
         self.geometry("1100x750")
         self.minsize(800, 600)
 
-        # Thread-safe task queue for background workers
+        # Thread-safe queue for background thread execution
         self.task_queue = queue.Queue()
         self._poll_queue()
 
@@ -46,397 +65,521 @@ class SkyCastMainWindow(tk.Tk):
 
         # State
         self.units = self.storage.get_units()
-        self.current_city = self.storage.get_last_city()
-        self.weather_data: Optional[Dict[str, Any]] = None
-        self.current_theme = DEFAULT_THEME
-        self.last_updated_time: float = time.time()
-        self.is_offline: bool = False
-        self.status_message: str = "Ready"
-
+        self.active_tab = "Today"  # 'Today', 'Week', '16 Days'
+        self.last_city = self.storage.get_last_city()
+        self.current_theme = resolve_theme(2, is_day=1, temp_c=26.0) # Partly cloudy daytime theme default
+        self.bg_pil_image: Optional[Image.Image] = None
+        self.bg_photo: Optional[ImageTk.PhotoImage] = None
         self.resize_debounce_id: Optional[str] = None
-        self.auto_refresh_id: Optional[str] = None
 
         # Build Full Canvas
         self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # Setup Fonts
+        # Initialize Fonts
         self._init_fonts()
 
-        # Child Component Controllers
+        # Components
         self.animator = WeatherAnimator(self.canvas)
-        self.search_bar = SearchBar(
-            parent_canvas=self.canvas,
-            on_search_submit=self._on_search_submit,
-            on_select_city=self._on_city_selected,
-            on_query_autocomplete=self._on_query_autocomplete
-        )
-        self.hero_card = CurrentWeatherCard(
-            canvas=self.canvas,
-            on_toggle_favorite=self._toggle_favorite,
-            on_refresh=self._manual_refresh
-        )
-        self.details_grid = DetailsGrid(self.canvas)
-        self.forecast_view = ForecastView(self.canvas)
+        self.other_cities_panel = OtherCitiesPanel(self.canvas, on_select_city=self._on_select_other_city)
 
-        # Bindings
+        # Window Resize Binding
         self.bind("<Configure>", self._on_resize)
+        self.bind("<F2>", lambda e: self._toggle_preview_mode())
 
-        # Load initial weather (or offline cache if network fails)
-        self.after(150, self._load_initial_data)
-
-        # Start 10-minute auto-refresh cycle
-        self._schedule_auto_refresh()
+        # Render initial layout
+        self.after(50, self._render_all_panels)
 
     def _init_fonts(self):
+        """Configure crisp typography for high-DPI monitors."""
         self.fonts = {
-            "logo": tkfont.Font(family="Segoe UI", size=16, weight="bold"),
-            "title": tkfont.Font(family="Segoe UI", size=22, weight="bold"),
-            "subtitle": tkfont.Font(family="Segoe UI", size=10),
-            "temp_large": tkfont.Font(family="Segoe UI", size=50, weight="bold"),
+            "logo": tkfont.Font(family="Segoe UI", size=15, weight="bold"),
+            "city_title": tkfont.Font(family="Segoe UI", size=20, weight="bold"),
+            "temp_huge": tkfont.Font(family="Segoe UI", size=52, weight="bold"),
             "h2": tkfont.Font(family="Segoe UI", size=13, weight="bold"),
+            "h3": tkfont.Font(family="Segoe UI", size=11, weight="bold"),
             "body": tkfont.Font(family="Segoe UI", size=10),
             "body_bold": tkfont.Font(family="Segoe UI", size=10, weight="bold"),
             "small": tkfont.Font(family="Segoe UI", size=8),
             "small_bold": tkfont.Font(family="Segoe UI", size=8, weight="bold"),
-            "icon_large": tkfont.Font(family="Segoe UI Emoji", size=46)
+            "icon_large": tkfont.Font(family="Segoe UI Emoji", size=32),
+            "icon_huge": tkfont.Font(family="Segoe UI Emoji", size=48),
+            "icon_mid": tkfont.Font(family="Segoe UI Emoji", size=20)
         }
 
-    def _on_resize(self, event):
-        if event.widget == self:
-            if self.resize_debounce_id:
-                self.after_cancel(self.resize_debounce_id)
-            self.resize_debounce_id = self.after(80, self._redraw_ui)
-
-    def _schedule_auto_refresh(self):
-        """Auto-refresh every 10 minutes (600,000 ms)."""
-        if self.auto_refresh_id:
-            self.after_cancel(self.auto_refresh_id)
-        self.auto_refresh_id = self.after(600000, self._auto_refresh_tick)
-
-    def _auto_refresh_tick(self):
-        self.load_weather(self.current_city, silent=True)
-        self._schedule_auto_refresh()
-
-    def _manual_refresh(self):
-        self.status_message = "Refreshing live weather..."
-        self._redraw_ui()
-        self.load_weather(self.current_city)
-
-    def _load_initial_data(self):
-        # Load last city from storage
-        last_c = self.storage.get_last_city()
-        self.load_weather(last_c)
-
     def _poll_queue(self):
-        """Process any pending thread callbacks safely in the Tkinter main loop."""
+        """Safely execute any tasks dispatched from background threads."""
         try:
             while not self.task_queue.empty():
                 callback = self.task_queue.get_nowait()
                 try:
                     callback()
                 except Exception as ex:
-                    print(f"[MainThread Queue Error]: {ex}")
+                    print(f"[SkyCast Queue Error]: {ex}")
         except Exception:
             pass
         self.after(50, self._poll_queue)
 
     def dispatch_to_main_thread(self, callback):
-        """Thread-safe dispatch from background workers into the Tkinter main thread."""
         self.task_queue.put(callback)
 
-    def load_weather(self, city_info: Dict[str, Any], silent: bool = False):
-        """Asynchronously load weather from Open-Meteo, with graceful offline fallback."""
-        self.current_city = city_info
-        lat = city_info.get("lat") or city_info.get("latitude", 51.5074)
-        lon = city_info.get("lon") or city_info.get("longitude", -0.1278)
+    def _on_resize(self, event):
+        """Debounced resize handler: only re-renders panels when resizing stops."""
+        if event.widget == self:
+            if self.resize_debounce_id:
+                self.after_cancel(self.resize_debounce_id)
+            self.resize_debounce_id = self.after(80, self._render_all_panels)
 
-        if not silent:
-            self.status_message = f"Fetching real-time weather for {city_info.get('name', 'city')}..."
-            self._redraw_ui()
+    def _render_all_panels(self):
+        """
+        Main Frosted Glass Rendering Pipeline:
+        1. Generates full-window background (procedural gradient or wallpaper).
+        2. Crops, blurs, and tints each panel using Pillow (frosted glass effect).
+        3. Places all glass panels once on the Canvas.
+        4. Overlays text, icons, tabs, and overview tiles.
+        """
+        w = max(self.canvas.winfo_width(), 800)
+        h = max(self.canvas.winfo_height(), 600)
 
-        temp_u = self.units.get("temp", "celsius")
-        wind_u = self.units.get("wind", "kmh")
-
-        def on_success(data: Dict[str, Any]):
-            # Safely queue UI update into the main thread task queue
-            self.dispatch_to_main_thread(lambda: self._apply_weather_success(data, city_info))
-
-        def on_error(err_msg: str):
-            self.dispatch_to_main_thread(lambda: self._apply_weather_error(err_msg))
-
-        self.api_client.get_weather_async(lat, lon, temp_u, wind_u, on_success, on_error)
-
-    def _apply_weather_success(self, data: Dict[str, Any], city_info: Dict[str, Any]):
-        self.weather_data = data
-        self.last_updated_time = time.time()
-        self.is_offline = False
-        self.status_message = f"Live weather updated for {city_info.get('name')}."
-
-        # Cache for offline usage
-        self.storage.save_cache(data)
-        self.storage.set_last_city(city_info)
-
-        # Dynamic Theme & Particle Animation
-        curr = data.get("current", {})
-        code = curr.get("weather_code", 0)
-        is_day = curr.get("is_day", 1)
-        w_info = get_weather_info(code, is_day)
-
-        self.current_theme = get_theme(w_info["theme_key"])
-        self.animator.set_animation(w_info["animation"])
-
-        self._redraw_ui()
-
-    def _apply_weather_error(self, err_msg: str):
-        # Attempt offline fallback
-        cached = self.storage.get_cache()
-        if cached:
-            self.weather_data = cached
-            self.last_updated_time = self.storage.get_cache_timestamp()
-            self.is_offline = True
-            self.status_message = f"⚠️ {err_msg} — Displaying cached offline data."
-
-            curr = cached.get("current", {})
-            code = curr.get("weather_code", 0)
-            is_day = curr.get("is_day", 1)
-            w_info = get_weather_info(code, is_day)
-            self.current_theme = get_theme(w_info["theme_key"])
-            self.animator.set_animation(w_info["animation"])
-        else:
-            self.status_message = f"⚠️ {err_msg} — No cached data available."
-
-        self._redraw_ui()
-
-    # --- Search & Autocomplete Handlers ---
-
-    def _on_query_autocomplete(self, query: str):
-        def on_res(results):
-            self.dispatch_to_main_thread(lambda: self._show_autocomplete(results))
-        self.api_client.search_cities_async(query, on_res, lambda e: None)
-
-    def _show_autocomplete(self, results):
-        w = self.canvas.winfo_width()
-        entry_w = min(max(int(w * 0.26), 200), 300)
-        entry_x = int(w * 0.28)
-        self.search_bar.update_suggestions(results, entry_x, 56, entry_w)
-
-    def _on_city_selected(self, city_item: Dict[str, Any]):
-        self.load_weather(city_item)
-
-    def _on_search_submit(self, query: str):
-        self.status_message = f"Searching for '{query}'..."
-        self._redraw_ui()
-
-        def on_res(results):
-            if results:
-                self.dispatch_to_main_thread(lambda: self.load_weather(results[0]))
-            else:
-                self.dispatch_to_main_thread(lambda: self._apply_weather_error(f"City '{query}' not found."))
-
-        self.api_client.search_cities_async(query, on_res, lambda err: self.dispatch_to_main_thread(lambda: self._apply_weather_error(err)))
-
-    # --- Favorites & Unit Toggles ---
-
-    def _toggle_favorite(self):
-        city_name = self.current_city.get("name", "")
-        if self.storage.is_favorite(city_name):
-            self.storage.remove_favorite(city_name)
-            self.status_message = f"Removed {city_name} from favorites."
-        else:
-            self.storage.add_favorite(self.current_city)
-            self.status_message = f"Added {city_name} to favorites ⭐"
-        self._redraw_ui()
-
-    def _show_favorites_menu(self):
-        favs = self.storage.get_favorites()
-        if not favs:
-            self.status_message = "No favorite cities added yet. Click ⭐ to bookmark a city."
-            self._redraw_ui()
-            return
-
-        # Simple popup listbox
-        w = self.canvas.winfo_width()
-        top_x = w - 410
-        self.search_bar.update_suggestions(favs, top_x, 56, 200)
-
-    def _toggle_temp_unit(self):
-        curr = self.units.get("temp", "celsius")
-        new_u = "fahrenheit" if curr == "celsius" else "celsius"
-        self.units["temp"] = new_u
-        self.storage.set_unit("temp", new_u)
-        self.load_weather(self.current_city)
-
-    def _toggle_wind_unit(self):
-        curr = self.units.get("wind", "kmh")
-        order = ["kmh", "mph", "ms"]
-        next_u = order[(order.index(curr) + 1) % len(order)]
-        self.units["wind"] = next_u
-        self.storage.set_unit("wind", next_u)
-        self.load_weather(self.current_city)
-
-    def _toggle_pressure_unit(self):
-        curr = self.units.get("pressure", "hPa")
-        new_u = "inHg" if curr == "hPa" else "hPa"
-        self.units["pressure"] = new_u
-        self.storage.set_unit("pressure", new_u)
-        self._redraw_ui()
-
-    # --- Rendering Engine ---
-
-    def _redraw_ui(self):
-        w = self.canvas.winfo_width()
-        h = self.canvas.winfo_height()
-        if w < 100 or h < 100:
-            return
-
+        # Clear existing elements
+        self.canvas.delete("glass_panel")
         self.canvas.delete("ui_element")
-        self.canvas.delete("bg_gradient")
+        self.canvas.delete("bg_image")
 
-        # 1. Background linear gradient
-        grad_img = get_gradient_image(
+        # 1. Update font sizes adaptively based on window width
+        is_compact = (w < 950)
+        self.fonts["city_title"].config(size=16 if is_compact else 20)
+        self.fonts["temp_huge"].config(size=40 if is_compact else 52)
+        self.fonts["icon_huge"].config(size=36 if is_compact else 48)
+        self.fonts["h2"].config(size=12 if is_compact else 13)
+
+        # 1. Generate full-screen background
+        self.bg_pil_image = generate_procedural_background(
             w, h,
             self.current_theme["gradient_top"],
             self.current_theme["gradient_bottom"]
         )
-        self.canvas.create_image(0, 0, image=grad_img, anchor="nw", tags="bg_gradient")
+        self.bg_photo = ImageTk.PhotoImage(self.bg_pil_image)
+        self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw", tags="bg_image")
 
-        # 2. Top Header Navigation
-        self._draw_header(w)
+        # 2. Draw Top Navigation Glass Bar
+        self._draw_top_bar(w)
 
-        # 3. Layout Dimensions (2 Columns)
-        margin = 25
-        gap = 18
-        top_y = 75
+        # 3. Calculate 3-Column Coordinates
+        pad = 16 if is_compact else 20
+        gap = 10 if is_compact else 14
+        top_y = 74 if is_compact else 78
+        avail_h = h - top_y - pad
 
-        # Responsive column split
-        col_w = (w - margin * 2 - gap) // 2
+        # Column widths matching reference screenshot (Left ~36%, Middle ~38%, Right ~26%)
+        avail_w = w - (pad * 2) - (gap * 2)
+        col1_w = int(avail_w * 0.35)
+        col2_w = int(avail_w * 0.38)
+        col3_w = avail_w - col1_w - col2_w
 
-        # Left Column: Hero Weather Card + Extra Details Grid
-        hero_h = int((h - top_y - 40) * 0.48)
-        details_y = top_y + hero_h + gap
-        details_h = h - details_y - 35
+        col1_x = pad
+        col2_x = col1_x + col1_w + gap
+        col3_x = col2_x + col2_w + gap
 
-        is_fav = self.storage.is_favorite(self.current_city.get("name", ""))
-        self.hero_card.draw(
-            x=margin, y=top_y, width=col_w, height=hero_h,
-            city_info=self.current_city,
-            weather_data=self.weather_data or {},
+        # Row 1 Height (Hero & Forecast tabs)
+        row1_h = int(avail_h * 0.45)
+        row2_y = top_y + row1_h + gap
+        row2_h = avail_h - row1_h - gap
+
+        # 4. Draw Left Column Hero Weather Card
+        self._draw_hero_card(col1_x, top_y, col1_w, row1_h, is_compact)
+
+        # 5. Draw Middle Column Forecast Mini-Cards
+        self._draw_forecast_card(col2_x, top_y, col2_w, row1_h, is_compact)
+
+        # 6. Draw Lower Span: Overview Grid
+        overview_w = col1_w + gap + col2_w
+        self._draw_overview_grid(col1_x, row2_y, overview_w, row2_h, is_compact)
+
+        # 7. Draw Right Column: Other Cities Stacked Cards
+        self.other_cities_panel.draw(
+            bg_image=self.bg_pil_image,
+            x=col3_x, y=top_y,
+            width=col3_w, height=avail_h,
+            cities_data=PLACEHOLDER_OTHER_CITIES,
             theme=self.current_theme,
-            units=self.units,
-            is_fav=is_fav,
-            last_updated_time=self.last_updated_time,
-            is_offline=self.is_offline,
             fonts=self.fonts
         )
 
-        self.details_grid.draw(
-            x=margin, y=details_y, width=col_w, height=details_h,
-            weather_data=self.weather_data or {},
-            theme=self.current_theme,
-            units=self.units,
-            font_title=self.fonts["h2"],
-            font_value=self.fonts["body_bold"],
-            font_label=self.fonts["small_bold"],
-            font_badge=self.fonts["small"]
+        # Ensure correct layer stacking:
+        # Background (bottom) -> Particles -> Glass Panels -> UI Text / Controls (top)
+        self.canvas.tag_lower("bg_image")
+        self.canvas.tag_raise("glass_panel", "bg_image")
+        self.canvas.tag_raise("ui_element", "glass_panel")
+
+    # ========================================================================
+    # Top Navigation Glass Bar
+    # ========================================================================
+    def _draw_top_bar(self, w: int):
+        pad = 20
+        bar_h = 48
+        bar_w = w - (pad * 2)
+
+        # Frosted glass background
+        bar_photo = render_frosted_glass_panel(
+            bg_image=self.bg_pil_image,
+            x=pad, y=14,
+            width=bar_w, height=bar_h,
+            radius=24,
+            blur_radius=16,
+            tint_opacity=self.current_theme.get("glass_tint_opacity", 0.18),
+            border_opacity=85
         )
+        self.canvas.create_image(pad, 14, image=bar_photo, anchor="nw", tags="glass_panel")
 
-        # Right Column: 24h Trend Chart + 7-Day Forecast
-        chart_x = margin + col_w + gap
-        chart_h = int((h - top_y - 40) * 0.44)
-        daily_y = top_y + chart_h + gap
-        daily_h = h - daily_y - 35
-
-        temp_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
-
-        self.forecast_view.draw_trend_chart(
-            x=chart_x, y=top_y, width=col_w, height=chart_h,
-            weather_data=self.weather_data or {},
-            theme=self.current_theme,
-            temp_symbol=temp_sym,
-            font_title=self.fonts["h2"],
-            font_small=self.fonts["small"],
-            font_bold=self.fonts["small_bold"]
-        )
-
-        self.forecast_view.draw_7day_forecast(
-            x=chart_x, y=daily_y, width=col_w, height=daily_h,
-            weather_data=self.weather_data or {},
-            theme=self.current_theme,
-            temp_symbol=temp_sym,
-            font_title=self.fonts["h2"],
-            font_body=self.fonts["body"],
-            font_bold=self.fonts["body_bold"]
-        )
-
-        # Status Bar at Bottom
+        # Left: Hamburger menu icon + App Name
         self.canvas.create_text(
-            margin, h - 16,
-            text=f"✦ {self.status_message}   |   Open-Meteo API",
+            pad + 20, 38,
+            text="☰",
+            font=("Segoe UI", 14),
+            fill=self.current_theme["text_primary"],
+            anchor="w",
+            tags="ui_element"
+        )
+        self.canvas.create_text(
+            pad + 48, 38,
+            text="SkyCast",
+            font=self.fonts["logo"],
+            fill=self.current_theme["text_primary"],
+            anchor="w",
+            tags="ui_element"
+        )
+
+        # Center: Pill Search Field
+        pill_w = min(max(int(w * 0.28), 200), 320)
+        pill_x = w // 2 - (pill_w // 2)
+        pill_h = 32
+        pill_y = 22
+
+        # Draw Search Pill outline & glass
+        pill_glass = render_frosted_glass_panel(
+            bg_image=self.bg_pil_image,
+            x=pill_x, y=pill_y,
+            width=pill_w, height=pill_h,
+            radius=16,
+            blur_radius=12,
+            tint_opacity=0.22,
+            border_opacity=90
+        )
+        self.canvas.create_image(pill_x, pill_y, image=pill_glass, anchor="nw", tags="glass_panel")
+        self.canvas.create_text(
+            pill_x + 14, pill_y + pill_h // 2,
+            text="🔍  Search City...",
+            font=self.fonts["body"],
+            fill=self.current_theme["text_muted"],
+            anchor="w",
+            tags="ui_element"
+        )
+
+        # Right: Unit Toggle (°C/°F) and Settings Gear (⚙)
+        gear_x = pad + bar_w - 30
+        self.canvas.create_text(
+            gear_x, 38,
+            text="⚙",
+            font=("Segoe UI", 16),
+            fill=self.current_theme["text_primary"],
+            anchor="e",
+            tags="ui_element"
+        )
+
+        unit_x = gear_x - 45
+        t_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
+        self.canvas.create_text(
+            unit_x, 38,
+            text=f"[{t_sym}]",
+            font=self.fonts["body_bold"],
+            fill=self.current_theme["accent"],
+            anchor="e",
+            tags="ui_element"
+        )
+
+    # ========================================================================
+    # Left Column: Hero Current Weather Card
+    # ========================================================================
+    def _draw_hero_card(self, x: int, y: int, w: int, h: int, is_compact: bool = False):
+        glass_photo = render_frosted_glass_panel(
+            bg_image=self.bg_pil_image,
+            x=x, y=y,
+            width=w, height=h,
+            radius=20,
+            blur_radius=18,
+            tint_opacity=self.current_theme.get("glass_tint_opacity", 0.18),
+            border_opacity=80
+        )
+        self.canvas.create_image(x, y, image=glass_photo, anchor="nw", tags="glass_panel")
+
+        pad_x = 18 if is_compact else 24
+
+        # Location & Local Time
+        self.canvas.create_text(
+            x + pad_x, y + (24 if is_compact else 30),
+            text="📍 Lagos, Nigeria",
+            font=self.fonts["city_title"],
+            fill=self.current_theme["text_primary"],
+            anchor="w",
+            tags="ui_element"
+        )
+        self.canvas.create_text(
+            x + pad_x, y + (48 if is_compact else 58),
+            text="8:15 AM",
+            font=self.fonts["body"],
+            fill=self.current_theme["text_secondary"],
+            anchor="w",
+            tags="ui_element"
+        )
+
+        # Big Temperature & Condition
+        temp_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
+        temp_y = y + (96 if is_compact else 115)
+        self.canvas.create_text(
+            x + pad_x, temp_y,
+            text=f"26{temp_sym}",
+            font=self.fonts["temp_huge"],
+            fill=self.current_theme["text_primary"],
+            anchor="w",
+            tags="ui_element"
+        )
+
+        cond_x = x + (135 if is_compact else 185)
+        self.canvas.create_text(
+            cond_x, temp_y - (10 if is_compact else 13),
+            text="Partly Sunny",
+            font=self.fonts["h2"],
+            fill=self.current_theme["accent"],
+            anchor="w",
+            tags="ui_element"
+        )
+        self.canvas.create_text(
+            cond_x, temp_y + (12 if is_compact else 14),
+            text=f"Feels like 28{temp_sym}",
+            font=self.fonts["body"],
+            fill=self.current_theme["text_secondary"],
+            anchor="w",
+            tags="ui_element"
+        )
+
+        # Weather Summary Sentence (from reference screenshot)
+        summary_text = (
+            "Light winds and a warm morning.\nSlight chance of rain in the evening."
+            if is_compact else
+            "Light winds and a warm morning. Slight chance of rain in the evening.\n"
+            "Humidity remains high with clear skies expected into Tuesday."
+        )
+        self.canvas.create_text(
+            x + pad_x, y + h - (26 if is_compact else 35),
+            text=summary_text,
             font=self.fonts["small"],
             fill=self.current_theme["text_muted"],
             anchor="w",
             tags="ui_element"
         )
 
-    def _draw_header(self, w: int):
-        margin = 25
-        # Logo & App Title
+    # ========================================================================
+    # Middle Column: Forecast Tabs & Horizontal Mini-Cards
+    # ========================================================================
+    def _draw_forecast_card(self, x: int, y: int, w: int, h: int, is_compact: bool = False):
+        glass_photo = render_frosted_glass_panel(
+            bg_image=self.bg_pil_image,
+            x=x, y=y,
+            width=w, height=h,
+            radius=20,
+            blur_radius=18,
+            tint_opacity=self.current_theme.get("glass_tint_opacity", 0.18),
+            border_opacity=80
+        )
+        self.canvas.create_image(x, y, image=glass_photo, anchor="nw", tags="glass_panel")
+
+        # Tabs Header: Today | Week | 16 Days
+        tab_y = y + (14 if is_compact else 18)
+        tab_x = x + (14 if is_compact else 20)
+        tabs = [
+            ("Today", 52 if is_compact else 65),
+            ("Week", 48 if is_compact else 60),
+            ("16 Days", 60 if is_compact else 75)
+        ]
+
+        cur_x = tab_x
+        tab_gap = 6 if is_compact else 10
+        for name, tw in tabs:
+            is_active = (name == self.active_tab)
+            if is_active:
+                tab_pill = render_frosted_glass_panel(
+                    bg_image=self.bg_pil_image,
+                    x=cur_x, y=tab_y,
+                    width=tw, height=26 if is_compact else 28,
+                    radius=13 if is_compact else 14,
+                    blur_radius=10,
+                    tint_opacity=0.35,
+                    border_opacity=110
+                )
+                self.canvas.create_image(cur_x, tab_y, image=tab_pill, anchor="nw", tags="glass_panel")
+                self.canvas.create_text(
+                    cur_x + tw // 2, tab_y + (13 if is_compact else 14),
+                    text=name,
+                    font=self.fonts["small_bold"],
+                    fill="#FFFFFF",
+                    tags="ui_element"
+                )
+            else:
+                self.canvas.create_text(
+                    cur_x + tw // 2, tab_y + (13 if is_compact else 14),
+                    text=name,
+                    font=self.fonts["small"],
+                    fill=self.current_theme["text_muted"],
+                    tags="ui_element"
+                )
+            cur_x += tw + tab_gap
+
+        # Row of Vertical Mini-Cards (9:00, 10:00, 11:00, 12:00 etc.)
+        mini_top = y + (52 if is_compact else 62)
+        mini_h = h - (64 if is_compact else 78)
+        
+        pad_m = 12 if is_compact else 18
+        gap_m = 6 if is_compact else 10
+        card_w = (w - (pad_m * 2) - (gap_m * 3)) // 4
+
+        sample_hours = [
+            {"time": "9:00", "icon": "☀️", "temp": "26°C", "rain": "0%"},
+            {"time": "10:00", "icon": "⛅", "temp": "27°C", "rain": "5%"},
+            {"time": "11:00", "icon": "🌦️", "temp": "28°C", "rain": "25%"},
+            {"time": "12:00", "icon": "🌧️", "temp": "29°C", "rain": "60%"}
+        ]
+
+        for i, h_item in enumerate(sample_hours):
+            mx = x + pad_m + i * (card_w + gap_m)
+            m_photo = render_frosted_glass_panel(
+                bg_image=self.bg_pil_image,
+                x=mx, y=mini_top,
+                width=card_w, height=mini_h,
+                radius=14 if is_compact else 16,
+                blur_radius=12,
+                tint_opacity=0.12,
+                border_opacity=60
+            )
+            self.canvas.create_image(mx, mini_top, image=m_photo, anchor="nw", tags="glass_panel")
+
+            # Time
+            self.canvas.create_text(
+                mx + card_w // 2, mini_top + 16,
+                text=h_item["time"],
+                font=self.fonts["small"],
+                fill=self.current_theme["text_secondary"],
+                tags="ui_element"
+            )
+
+            # Icon
+            self.canvas.create_text(
+                mx + card_w // 2, mini_top + mini_h // 2 - 4,
+                text=h_item["icon"],
+                font=self.fonts["icon_mid"],
+                tags="ui_element"
+            )
+
+            # Temp
+            self.canvas.create_text(
+                mx + card_w // 2, mini_top + mini_h - 18,
+                text=h_item["temp"],
+                font=self.fonts["body_bold"],
+                fill=self.current_theme["text_primary"],
+                tags="ui_element"
+            )
+
+    # ========================================================================
+    # Lower Span: Overview Grid
+    # ========================================================================
+    def _draw_overview_grid(self, x: int, y: int, w: int, h: int, is_compact: bool = False):
+        # Header: 'Overview'
         self.canvas.create_text(
-            margin, 36,
-            text="✦ SKYCAST",
-            font=self.fonts["logo"],
+            x + 5, y + 10,
+            text="Overview",
+            font=self.fonts["h2"],
             fill=self.current_theme["text_primary"],
             anchor="w",
             tags="ui_element"
         )
-        self.canvas.create_text(
-            margin + 125, 38,
-            text="Weather Intelligence",
-            font=self.fonts["subtitle"],
-            fill=self.current_theme["text_secondary"],
-            anchor="w",
-            tags="ui_element"
-        )
 
-        # Place native search entry
-        entry_w = min(max(int(w * 0.26), 200), 300)
-        entry_x = int(w * 0.28)
-        self.canvas.create_window(entry_x, 38, window=self.search_bar.entry, width=entry_w, height=32, tags="ui_element")
+        grid_y = y + (28 if is_compact else 32)
+        grid_h = h - (28 if is_compact else 32)
 
-        # Search Button
-        s_btn_x = entry_x + entry_w // 2 + 25
-        self._create_btn(s_btn_x, 22, 65, 32, "Search", "#2563EB", "#FFFFFF", self.search_bar.submit)
+        # 3 Primary Tiles from screenshot (Humidity, UV Index, Visibility)
+        cols = 3
+        gap = 8 if is_compact else 12
+        tile_w = (w - gap * (cols - 1)) // cols
 
-        # Favorites Button (⭐)
-        fav_btn_x = s_btn_x + 72
-        self._create_btn(fav_btn_x, 22, 85, 32, "★ Saved", "#334155", "#F8FAFC", self._show_favorites_menu)
+        # Tile 1: Humidity (Drop icon, percentage, 'Amount of moisture in the air')
+        t1_x = x
+        t1_photo = render_frosted_glass_panel(self.bg_pil_image, t1_x, grid_y, tile_w, grid_h, radius=16 if is_compact else 18, blur_radius=16)
+        self.canvas.create_image(t1_x, grid_y, image=t1_photo, anchor="nw", tags="glass_panel")
 
-        # Unit Toggles: Temp (°C/°F), Wind, Pressure
-        t_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
-        w_sym = self.units.get("wind", "kmh")
-        p_sym = self.units.get("pressure", "hPa")
+        self.canvas.create_text(t1_x + 14, grid_y + 18, text="Humidity", font=self.fonts["body"], fill=self.current_theme["text_secondary"], anchor="w", tags="ui_element")
+        self.canvas.create_text(t1_x + tile_w // 2, grid_y + grid_h // 2 - 6, text="💧", font=self.fonts["icon_huge"], tags="ui_element")
+        self.canvas.create_text(t1_x + 14, grid_y + grid_h - 18, text="67%", font=self.fonts["h2"], fill=self.current_theme["text_primary"], anchor="w", tags="ui_element")
+        if tile_w >= 180:
+            self.canvas.create_text(t1_x + tile_w - 14, grid_y + grid_h - 18, text="Moisture in the air", font=("Segoe UI", 7), fill=self.current_theme["text_muted"], anchor="e", tags="ui_element")
 
-        btn1_x = w - margin - 220
-        self._create_btn(btn1_x, 22, 65, 32, t_sym, "#1E293B", "#38BDF8", self._toggle_temp_unit)
+        # Tile 2: UV Index (Vertical gradient thermometer bar, '4 (Moderate)')
+        t2_x = t1_x + tile_w + gap
+        t2_photo = render_frosted_glass_panel(self.bg_pil_image, t2_x, grid_y, tile_w, grid_h, radius=16 if is_compact else 18, blur_radius=16)
+        self.canvas.create_image(t2_x, grid_y, image=t2_photo, anchor="nw", tags="glass_panel")
 
-        btn2_x = btn1_x + 72
-        self._create_btn(btn2_x, 22, 65, 32, w_sym, "#1E293B", "#38BDF8", self._toggle_wind_unit)
+        self.canvas.create_text(t2_x + 14, grid_y + 18, text="UV Index", font=self.fonts["body"], fill=self.current_theme["text_secondary"], anchor="w", tags="ui_element")
 
-        btn3_x = btn2_x + 72
-        self._create_btn(btn3_x, 22, 65, 32, p_sym, "#1E293B", "#38BDF8", self._toggle_pressure_unit)
+        # Vertical gradient bar
+        bar_x = t2_x + tile_w // 2 - 4
+        bar_y1 = grid_y + (30 if is_compact else 40)
+        bar_y2 = grid_y + grid_h - (36 if is_compact else 45)
+        # Background bar
+        self.canvas.create_rectangle(bar_x, bar_y1, bar_x + 8, bar_y2, fill="#334155", outline="", tags="ui_element")
+        # Gradient active indicator
+        self.canvas.create_rectangle(bar_x, bar_y1 + 22, bar_x + 8, bar_y2, fill="#F59E0B", outline="", tags="ui_element")
 
-    def _create_btn(self, x: int, y: int, w: int, h: int, text: str, bg_color: str, fg_color: str, callback):
-        tag = f"btn_{x}_{y}"
-        btn_card = create_glass_card(w, h, radius=8, fill_rgba=(30, 41, 59, 210), border_rgba=(148, 163, 184, 100))
-        self.canvas.create_image(x, y, image=btn_card, anchor="nw", tags=("ui_element", tag))
-        self.canvas.create_text(
-            x + w // 2, y + h // 2,
-            text=text,
-            font=self.fonts["small_bold"],
-            fill=fg_color,
-            tags=("ui_element", tag)
-        )
-        self.canvas.tag_bind(tag, "<Button-1>", lambda e: callback())
-        self.canvas.tag_bind(tag, "<Enter>", lambda e: self.config(cursor="hand2"))
-        self.canvas.tag_bind(tag, "<Leave>", lambda e: self.config(cursor=""))
+        self.canvas.create_text(t2_x + tile_w // 2, grid_y + grid_h - 18, text="4 (Moderate)", font=self.fonts["h2"], fill=self.current_theme["text_primary"], tags="ui_element")
+
+        # Tile 3: Visibility (Cloud/Haze icon, 67%, 'Haze is affecting visibility')
+        t3_x = t2_x + tile_w + gap
+        t3_photo = render_frosted_glass_panel(self.bg_pil_image, t3_x, grid_y, tile_w, grid_h, radius=16 if is_compact else 18, blur_radius=16)
+        self.canvas.create_image(t3_x, grid_y, image=t3_photo, anchor="nw", tags="glass_panel")
+
+        self.canvas.create_text(t3_x + 14, grid_y + 18, text="Visibility", font=self.fonts["body"], fill=self.current_theme["text_secondary"], anchor="w", tags="ui_element")
+        self.canvas.create_text(t3_x + tile_w // 2, grid_y + grid_h // 2 - 6, text="🌫️", font=self.fonts["icon_huge"], tags="ui_element")
+        self.canvas.create_text(t3_x + 14, grid_y + grid_h - 18, text="10 km", font=self.fonts["h2"], fill=self.current_theme["text_primary"], anchor="w", tags="ui_element")
+        if tile_w >= 180:
+            self.canvas.create_text(t3_x + tile_w - 14, grid_y + grid_h - 18, text="Haze is present", font=("Segoe UI", 7), fill=self.current_theme["text_muted"], anchor="e", tags="ui_element")
+
+    # ========================================================================
+    # Handlers & Preview Mode
+    # ========================================================================
+    def _on_select_other_city(self, city_name: str):
+        print(f"[SkyCast] Selected city from right column: {city_name}")
+
+    def _toggle_preview_mode(self):
+        """Hidden preview mode (F2) to cycle through weather x time phases."""
+        themes_cycle = [
+            ("clear", "day"), ("clear", "evening"), ("clear", "night"),
+            ("rain", "day"), ("thunderstorm", "night"), ("snow", "day"), ("fog", "dawn")
+        ]
+        curr_idx = getattr(self, "_preview_idx", 0)
+        w_type, phase = themes_cycle[curr_idx % len(themes_cycle)]
+        self._preview_idx = curr_idx + 1
+
+        self.current_theme = resolve_theme(0, forced_theme=f"{w_type}-{phase}")
+        clear_panel_cache()
+        self._render_all_panels()
+        print(f"[SkyCast Preview] Switched to forced theme: {w_type} x {phase}")
+
+def main():
+    try:
+        app = SkyCastMainWindow()
+        app.mainloop()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"Error launching Stage 3: {e}")
+
+if __name__ == "__main__":
+    main()
