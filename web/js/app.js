@@ -359,15 +359,17 @@ async function reverseGeocode(lat, lon) {
 async function fetchCitySuggestions(query) {
   try {
     let results = [];
-    const res = await fetch(`/api/geocode?city=${encodeURIComponent(query)}`);
-    if (res.ok) {
-      const data = await res.json();
-      results = data.results || [];
-    } else {
-      throw new Error("Backend search failed");
+    try {
+      const res = await fetch(`/api/geocode?city=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json();
+        results = data.results || [];
+      }
+    } catch (e) {
+      // Backend proxy unavailable, will fall through to direct Open-Meteo geocoding
     }
 
-    if (results.length === 0) {
+    if (!results || results.length === 0) {
       // Direct Open-Meteo geocoding fallback
       const direct = await fetch(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`
