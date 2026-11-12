@@ -1,48 +1,38 @@
-# Python
+# Python Bytecode & Environments
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-.env
-.venv
+.venv/
 venv/
+env/
 ENV/
+
+# Local Application Data & Cache (Never commit user settings/cache)
+*skycast_data.json
+*.cache
 
 # Node / Web / Vercel
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 .vercel/
-.next/
-out/
+npm-debug.log*
 
-# OS / Editor files
+# Environment & Secrets (Strict policy: no secrets in repo)
+.env
+.env.*
+*.secret
+*.pem
+*.key
+
+# OS & Editor Metadata
 .DS_Store
 Thumbs.db
+desktop.ini
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# Local runtime data / caches
-*skycast_data.json
-
-.vercel
