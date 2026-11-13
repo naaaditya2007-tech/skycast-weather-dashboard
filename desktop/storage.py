@@ -208,6 +208,12 @@ class StorageManager:
             return self.save()
         return False
 
+    def reset_favorites_to_defaults(self) -> bool:
+        """Reset favorites back to the default Indian cities list."""
+        defaults = self._get_defaults()
+        self.data["favorites"] = [dict(f) for f in defaults["favorites"]]
+        return self.save()
+
     # --- Offline Fallback Cache ---
     def save_cache(self, weather_data: Dict[str, Any]) -> bool:
         self.data["cache"] = weather_data

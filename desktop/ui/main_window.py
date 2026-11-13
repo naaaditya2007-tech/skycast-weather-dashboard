@@ -215,6 +215,7 @@ class SkyCastMainWindow(tk.Tk):
         self.settings_popover_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)
         self.about_popover_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)
         self.cache_cleared_notice: bool = False
+        self.favs_reset_notice: bool = False
         self._last_gear_x: int = 0
         self._last_logo_x: int = 0
 
@@ -244,7 +245,7 @@ class SkyCastMainWindow(tk.Tk):
             "logo": tkfont.Font(family="Segoe UI", size=15, weight="bold"),
             "city_title": tkfont.Font(family="Segoe UI", size=19, weight="bold"),
             "temp_huge": tkfont.Font(family="Segoe UI", size=48, weight="bold"),
-            "tile_val": tkfont.Font(family="Segoe UI", size=24, weight="bold"),
+            "tile_val": tkfont.Font(family="Segoe UI", size=26, weight="bold"),
             "h2": tkfont.Font(family="Segoe UI", size=13, weight="bold"),
             "h3": tkfont.Font(family="Segoe UI", size=11, weight="bold"),
             "body": tkfont.Font(family="Segoe UI", size=10),
@@ -635,7 +636,7 @@ class SkyCastMainWindow(tk.Tk):
         # Update typography scale based on width
         is_compact = (w < 950)
         self.fonts["city_title"].config(size=16 if is_compact else 20)
-        self.fonts["tile_val"].config(size=20 if is_compact else 24)
+        self.fonts["tile_val"].config(size=22 if is_compact else 26)
         self.fonts["h2"].config(size=12 if is_compact else 13)
         self.fonts["body"].config(size=9 if is_compact else 10)
         self.fonts["body_bold"].config(size=9 if is_compact else 10)
@@ -923,6 +924,19 @@ class SkyCastMainWindow(tk.Tk):
             self.canvas.tag_bind(tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
             self.canvas.tag_bind(tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
+    def _get_current_local_time_str(self) -> str:
+        """Returns live local clock for the current city using UTC offset."""
+        if self.weather_data and "utc_offset_seconds" in self.weather_data:
+            try:
+                offset_sec = self.weather_data.get("utc_offset_seconds", 0)
+                tz = datetime.timezone(datetime.timedelta(seconds=offset_sec))
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                local_dt = now_utc.astimezone(tz)
+                return local_dt.strftime("%I:%M %p")
+            except Exception:
+                pass
+        return datetime.datetime.now().strftime("%I:%M %p")
+
     # ========================================================================
     # Left Column: Hero Current Weather Card (Live Data)
     # ========================================================================
@@ -943,7 +957,7 @@ class SkyCastMainWindow(tk.Tk):
         avail_card_w = w - (pad_x * 2)
 
         # 1. Location Pin Inline + City Name (Ellipsis truncation only for excessively long city names)
-        c_name = self.current_city.get("name", "London")
+        c_name = self.current_city.get("name", "Chennai")
         c_country = self.current_city.get("country", "")
         city_display = f"📍 {c_name}, {c_country}" if c_country else f"📍 {c_name}"
         avail_title_w = avail_card_w - 6
@@ -969,15 +983,7 @@ class SkyCastMainWindow(tk.Tk):
         )
 
         # 2. Local Time on its own line below with clear spacing (32px vertical offset)
-        local_time_str = datetime.datetime.now().strftime("%I:%M %p")
-        if self.weather_data and "current" in self.weather_data:
-            t_iso = self.weather_data["current"].get("time", "")
-            if "T" in t_iso:
-                try:
-                    dt = datetime.datetime.fromisoformat(t_iso)
-                    local_time_str = dt.strftime("%I:%M %p")
-                except Exception:
-                    pass
+        local_time_str = self._get_current_local_time_str()
 
         self._draw_shadow_text(
             x + pad_x, y + (52 if is_compact else 58),
@@ -1176,6 +1182,20 @@ class SkyCastMainWindow(tk.Tk):
         card_w = (w - (pad_m * 2) - (gap_m * (card_count - 1))) // card_count
 
         hourly = self.weather_data.get("hourly", {}) if self.weather_data else {}
+        daily = self.weather_data.get("daily", {}) if self.weather_data else {}
+        sr_hour = 6
+        ss_hour = 18
+        if daily.get("sunrise") and len(daily["sunrise"]) > 0:
+            try:
+                sr_hour = int(daily["sunrise"][0].split("T")[1][:2])
+            except Exception:
+                pass
+        if daily.get("sunset") and len(daily["sunset"]) > 0:
+            try:
+                ss_hour = int(daily["sunset"][0].split("T")[1][:2])
+            except Exception:
+                pass
+
         h_times = hourly.get("time", [])[:card_count]
         h_temps = hourly.get("temperature_2m", [])[:card_count]
         h_wmos = hourly.get("weather_code", [])[:card_count]
@@ -1219,7 +1239,7 @@ class SkyCastMainWindow(tk.Tk):
             is_d = h_is_days[i] if i < len(h_is_days) else 1
             try:
                 hour_val = int(time_label.split(":")[0])
-                if hour_val < 6 or hour_val >= 18:
+                if hour_val < sr_hour or hour_val >= ss_hour:
                     is_d = 0
             except Exception:
                 pass
@@ -1293,13 +1313,16 @@ class SkyCastMainWindow(tk.Tk):
         hx = cx + high_idx * step_x
         hy = cy + ch - 16 - ((temps[high_idx] - min_t) / span_t) * (ch - 24)
         self.canvas.create_oval(hx - 3, hy - 3, hx + 3, hy + 3, fill="#FBBF24", outline="#FFFFFF", width=1, tags="ui_element")
-        self._draw_shadow_text(hx, hy - 10, f"High {round(temps[high_idx])}{temp_sym}", font=self.fonts["chart_label"], fill="#FBBF24", anchor="center")
+        hx_label = max(min(hx, cx + cw - 32), cx + 32)
+        hy_label = max(hy - 10, cy + 10)
+        self._draw_shadow_text(hx_label, hy_label, f"High {round(temps[high_idx])}{temp_sym}", font=self.fonts["chart_label"], fill="#FBBF24", anchor="center")
 
         lx = cx + low_idx * step_x
         ly = cy + ch - 16 - ((temps[low_idx] - min_t) / span_t) * (ch - 24)
         self.canvas.create_oval(lx - 3, ly - 3, lx + 3, ly + 3, fill="#38BDF8", outline="#FFFFFF", width=1, tags="ui_element")
-        low_label_y = ly - 10 if ly >= (cy + ch - 26) else ly + 10
-        self._draw_shadow_text(lx, low_label_y, f"Low {round(temps[low_idx])}{temp_sym}", font=self.fonts["chart_label"], fill="#38BDF8", anchor="center")
+        lx_label = max(min(lx, cx + cw - 32), cx + 32)
+        low_label_y = ly - 12 if ly >= (cy + ch - 26) else min(ly + 10, cy + ch - 22)
+        self._draw_shadow_text(lx_label, low_label_y, f"Low {round(temps[low_idx])}{temp_sym}", font=self.fonts["chart_label"], fill="#38BDF8", anchor="center")
 
         # Time markers at bottom (00:00, 06:00, 12:00, 18:00)
         for hour_step in (0, 6, 12, 18):
@@ -1809,7 +1832,7 @@ class SkyCastMainWindow(tk.Tk):
     def _draw_settings_popover(self, w: int):
         """Draws frosted glass settings popover menu with interactive controls."""
         pop_w = 310
-        pop_h = 360
+        pop_h = 415
         pad = 20
         bar_w = w - (pad * 2)
         gear_x = pad + bar_w - 24
@@ -1920,9 +1943,9 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.tag_bind(live_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
         self.canvas.tag_bind(live_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
-        # Section 3: Offline Storage Cache
-        sec3_y = live_y + 26 + 18
-        self._draw_shadow_text(pop_x + 18, sec3_y, "STORAGE & CACHE", font=self.fonts["small_bold"], fill="#94A3B8", anchor="w", tags="overlay")
+        # Section 3: Storage & Favorites Management
+        sec3_y = live_y + 26 + 16
+        self._draw_shadow_text(pop_x + 18, sec3_y, "STORAGE & FAVORITES", font=self.fonts["small_bold"], fill="#94A3B8", anchor="w", tags="overlay")
 
         cache_y = sec3_y + 12
         cache_tag = "pop_clear_cache"
@@ -1935,12 +1958,31 @@ class SkyCastMainWindow(tk.Tk):
             c_text = "🗑  Clear Offline Cache"
             c_col = "#F87171"
 
-        self.canvas.create_rectangle(pop_x + 18, cache_y, pop_x + pop_w - 18, cache_y + 28, fill=c_fill, outline="#475569", width=1, tags=("overlay", cache_tag))
-        self._draw_shadow_text(pop_x + pop_w // 2, cache_y + 14, c_text, font=self.fonts["small_bold"], fill=c_col, anchor="center", tags=("overlay", cache_tag))
+        self.canvas.create_rectangle(pop_x + 18, cache_y, pop_x + pop_w - 18, cache_y + 26, fill=c_fill, outline="#475569", width=1, tags=("overlay", cache_tag))
+        self._draw_shadow_text(pop_x + pop_w // 2, cache_y + 13, c_text, font=self.fonts["small_bold"], fill=c_col, anchor="center", tags=("overlay", cache_tag))
 
         self.canvas.tag_bind(cache_tag, "<Button-1>", lambda e: self._clear_cache())
         self.canvas.tag_bind(cache_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
         self.canvas.tag_bind(cache_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        # Reset Favorites to Default Indian Metros
+        fav_y = cache_y + 26 + 8
+        fav_tag = "pop_reset_favs"
+        if self.favs_reset_notice:
+            f_fill = "#065F46"
+            f_text = "✓ Indian Favourites Restored!"
+            f_col = "#34D399"
+        else:
+            f_fill = "#1E293B"
+            f_text = "🔄  Reset Favourites to Defaults"
+            f_col = "#38BDF8"
+
+        self.canvas.create_rectangle(pop_x + 18, fav_y, pop_x + pop_w - 18, fav_y + 26, fill=f_fill, outline="#475569", width=1, tags=("overlay", fav_tag))
+        self._draw_shadow_text(pop_x + pop_w // 2, fav_y + 13, f_text, font=self.fonts["small_bold"], fill=f_col, anchor="center", tags=("overlay", fav_tag))
+
+        self.canvas.tag_bind(fav_tag, "<Button-1>", lambda e: self._reset_favorites_to_defaults())
+        self.canvas.tag_bind(fav_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(fav_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
     def _toggle_about_popover(self):
         """Toggles the frosted glass About / Info popover."""
@@ -2026,6 +2068,21 @@ class SkyCastMainWindow(tk.Tk):
     def _reset_cache_notice(self):
         """Resets the cache cleared confirmation state."""
         self.cache_cleared_notice = False
+        if self.show_settings_popover:
+            self._render_all_panels()
+
+    def _reset_favorites_to_defaults(self):
+        """Resets saved favorite cities back to default Indian cities."""
+        self.storage.reset_favorites_to_defaults()
+        self.favorites_weather = []
+        self.favs_reset_notice = True
+        self._load_favorites_weather()
+        self._render_all_panels()
+        self.after(2500, self._reset_favs_notice)
+
+    def _reset_favs_notice(self):
+        """Resets the favorites reset confirmation state."""
+        self.favs_reset_notice = False
         if self.show_settings_popover:
             self._render_all_panels()
 

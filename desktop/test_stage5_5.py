@@ -1,14 +1,14 @@
 """
-SkyCast Stage 5.5 Verification Script (All Bug-Fixes & Top-Bar Popovers)
------------------------------------------------------------------------
+SkyCast Stage 5.5 Comprehensive Polish Verification Script
+----------------------------------------------------------
 Verifies:
-1. Default startup city is Chennai (13.0827, 80.2707)
+1. Default startup city is Chennai, Tamil Nadu, India (13.0827, 80.2707)
 2. Default favorites list is Indian cities: Bengaluru, Mumbai, New Delhi, Hyderabad, Kolkata
-3. Night icons return 'moon' and 'partly_night' instead of sun
-4. MainWindow loads live Open-Meteo weather for Chennai & Indian favorites
-5. Top bar has vector brand logo (not ☰) and responsive ⚙️ gear icon
-6. Settings popover opens on ⚙️ click with unit toggles, theme switcher, and clear cache
-7. Captures screenshots to desktop/assets/ and verifies cleanly
+3. Night icons return 'moon' and 'partly_night' instead of yellow sun
+4. Live local clock calculation using city UTC offset
+5. Top bar has custom vector brand logo (not ☰) and functional ⚙️ gear icon
+6. Settings popover with unit toggles, theme switcher, cache cleaner, and reset favorites
+7. Captures 1100x750 screenshots to desktop/assets/ and copies to artifacts
 """
 
 import sys
@@ -28,14 +28,14 @@ def test_unit_assertions():
     storage = StorageManager()
     last_city = storage.get_last_city()
     favorites = storage.get_favorites()
-    
+
     print(f"Startup City: {last_city.get('name')}, {last_city.get('admin1')}, {last_city.get('country')}")
     assert last_city.get("name") == "Chennai", f"Expected Chennai, got {last_city.get('name')}"
     assert abs(last_city.get("latitude") - 13.0827) < 0.01
     assert abs(last_city.get("longitude") - 80.2707) < 0.01
 
     fav_names = [f.get("name") for f in favorites]
-    print(f"Favorites: {fav_names}")
+    print(f"Default Favorites: {fav_names}")
     expected_favs = ["Bengaluru", "Mumbai", "New Delhi", "Hyderabad", "Kolkata"]
     assert fav_names == expected_favs, f"Expected {expected_favs}, got {fav_names}"
 
@@ -48,7 +48,7 @@ def test_unit_assertions():
     print("[PASS] Night icons accurately resolve to 'moon' and 'partly_night'!")
 
 def run_gui_verification():
-    print("\n=== 3. Launching SkyCast GUI & Verifying Top Bar Popovers ===")
+    print("\n=== 3. Launching SkyCast GUI & Verifying Live Dashboard ===")
     app = SkyCastMainWindow()
     app.geometry("1100x750+50+50")
     app.update_idletasks()
@@ -58,7 +58,7 @@ def run_gui_verification():
     os.makedirs(out_dir, exist_ok=True)
     artifact_dir = r"C:\Users\Aaditya.N.A\.gemini\antigravity\brain\9e04dabe-324d-4ad6-beef-0efb9f2ee50d"
 
-    # Wait for live data to load
+    # Wait for live data to load from Open-Meteo
     start = time.time()
     while time.time() - start < 6.0:
         app.update_idletasks()
@@ -66,6 +66,11 @@ def run_gui_verification():
         if app.weather_data is not None and not app.is_loading:
             break
         time.sleep(0.1)
+
+    # Verify live local clock calculation
+    local_clock = app._get_current_local_time_str()
+    print(f"Live Chennai Local Clock: {local_clock}")
+    assert ":" in local_clock and ("AM" in local_clock or "PM" in local_clock)
 
     # 1. Main Dashboard Screenshot (Chennai & Indian favorites)
     p1 = os.path.join(out_dir, "skycast_stage5_5_chennai_1100x750.png")
@@ -95,10 +100,14 @@ def run_gui_verification():
     except Exception as e:
         print(f"[WARNING] ImageGrab failed for settings popover: {e}")
 
-    # 3. Test Clear Cache feedback inside Settings
+    # 3. Test Clear Cache and Reset Favorites inside Settings
     app._clear_cache()
     assert app.cache_cleared_notice == True
     print("[PASS] Clear cache toggle activated with instant confirmation!")
+
+    app._reset_favorites_to_defaults()
+    assert app.favs_reset_notice == True
+    print("[PASS] Reset favorites to default Indian metros activated successfully!")
 
     # 4. Trigger About Popover via Vector Brand Logo
     print("\n[Testing About Popover]")
