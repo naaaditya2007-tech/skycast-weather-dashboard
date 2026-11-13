@@ -29,10 +29,11 @@ let units = {
 };
 
 let currentCity = {
-  name: "London",
-  country: "United Kingdom",
-  lat: 51.5074,
-  lon: -0.1278
+  name: "Chennai",
+  country: "India",
+  admin1: "Tamil Nadu",
+  lat: 13.0827,
+  lon: 80.2707
 };
 
 let weatherData = null;
@@ -694,7 +695,11 @@ function renderHourlyForecast(hourly) {
     const dt = new Date(t);
     const hourLabel = dt.toLocaleTimeString([], { hour: "numeric" });
     const code = codes[i];
-    const isD = isDays[i] !== undefined ? isDays[i] : 1;
+    const hour = dt.getHours();
+    let isD = isDays[i] !== undefined ? isDays[i] : (hour >= 6 && hour < 18 ? 1 : 0);
+    if (hour < 6 || hour >= 18) {
+      isD = 0;
+    }
     const info = getWeatherInfo(code, isD);
     const rainP = precips[i] !== undefined ? precips[i] : 0;
 
@@ -768,11 +773,21 @@ function addRecentSearch(cityObj) {
   }
 }
 
+const DEFAULT_INDIAN_FAVORITES = [
+  { name: "Bengaluru", country: "India", admin1: "Karnataka", lat: 12.9716, lon: 77.5946 },
+  { name: "Mumbai", country: "India", admin1: "Maharashtra", lat: 19.0760, lon: 72.8777 },
+  { name: "New Delhi", country: "India", admin1: "Delhi", lat: 28.6139, lon: 77.2090 },
+  { name: "Hyderabad", country: "India", admin1: "Telangana", lat: 17.3850, lon: 78.4867 },
+  { name: "Kolkata", country: "India", admin1: "West Bengal", lat: 22.5726, lon: 88.3639 }
+];
+
 function renderRecentSearches() {
   try {
-    const recent = JSON.parse(localStorage.getItem(STORAGE_RECENT) || "[]");
+    let recent = JSON.parse(localStorage.getItem(STORAGE_RECENT) || "[]");
+    if (!recent || recent.length === 0) {
+      recent = DEFAULT_INDIAN_FAVORITES;
+    }
     recentSearchesContainer.innerHTML = "";
-    if (recent.length === 0) return;
 
     recent.forEach(c => {
       const chip = document.createElement("button");
