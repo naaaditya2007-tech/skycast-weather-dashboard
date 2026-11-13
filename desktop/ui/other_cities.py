@@ -86,20 +86,37 @@ class OtherCitiesPanel:
         """Render the 'Other Cities' right-column stacked cards with live data."""
         self._icon_refs.clear()
 
-        # Section Header (tk.Label)
-        self.canvas.create_window(
+        # Section Header directly on canvas for 100% transparent background
+        hdr_font = fonts.get("h2", ("Segoe UI", 13, "bold"))
+        self.canvas.create_text(
+            x + 6, y + 15,
+            text="Other Cities",
+            font=hdr_font,
+            fill="#090D16",
+            anchor="w",
+            tags="ui_element"
+        )
+        self.canvas.create_text(
             x + 5, y + 14,
-            window=self.lbl_header,
+            text="Other Cities",
+            font=hdr_font,
+            fill="#FFFFFF",
             anchor="w",
             tags="ui_element"
         )
 
         # Header Action Button: Add/Favorite Toggle (tk.Button)
+        # Matches the exact slate-blue glass hex color (#4a6583 day / #2c3a4f night)
+        is_night = theme.get("time_phase") in ("night", "dusk")
+        glass_btn_bg = "#2c3a4f" if is_night else "#4a6583"
+        glass_btn_hover = "#3e526e" if is_night else "#5d7d9f"
+
         btn_text = "★ Saved" if is_current_favorite else "+ Add Fav"
         self.btn_fav.config(
             text=btn_text,
             fg="#FBBF24" if is_current_favorite else "#38BDF8",
-            bg="#2a374a" if is_current_favorite else "#3b4d66"
+            bg=glass_btn_bg,
+            activebackground=glass_btn_hover
         )
         self.canvas.create_window(
             x + width - 6, y + 14,

@@ -146,9 +146,25 @@ class WeatherApiClient:
             }
             aq_resp = requests.get(self.AIR_QUALITY_URL, params=aq_params, timeout=self.timeout)
             if aq_resp.ok:
-                aqi_payload = aq_resp.json().get("current", {})
+                raw_aq = aq_resp.json().get("current", {})
+                eu = raw_aq.get("european_aqi")
+                us = raw_aq.get("us_aqi")
+
+                # Extract value: prefer european_aqi, fallback to us_aqi, clamp 0-500, default to 35 if null
+                aqi_clean = 35
+                if eu is not None and isinstance(eu, (int, float)):
+                    aqi_clean = int(min(max(float(eu), 0), 500))
+                elif us is not None and isinstance(us, (int, float)):
+                    aqi_clean = int(min(max(float(us), 0), 500))
+
+                raw_aq["european_aqi"] = aqi_clean
+                raw_aq["us_aqi"] = int(min(max(float(us), 0), 500)) if us is not None and isinstance(us, (int, float)) else aqi_clean
+                aqi_payload = raw_aq
         except Exception:
             pass  # Air quality failure must never prevent core weather from loading
+
+        if not aqi_payload or "european_aqi" not in aqi_payload:
+            aqi_payload = {"european_aqi": 35, "us_aqi": 35}
 
         weather_payload["air_quality"] = aqi_payload
         return weather_payload

@@ -1028,14 +1028,16 @@ class SkyCastMainWindow(tk.Tk):
         )
         self.canvas.create_image(pad, 14, image=bar_photo, anchor="nw", tags="glass_panel")
 
-        # Clean Custom Vector Weather Logo (Sun behind Cloud) + Brand Title (tk.Label)
+        # Clean Custom Vector Weather Logo (Sun behind Cloud) + Brand Title directly on canvas
         logo_sz = 26
         logo_img = get_weather_icon_image("partly", size=logo_sz)
         self._icon_refs.append(logo_img)
         logo_tag = "btn_brand_logo"
         self._last_logo_x = pad + 20
         self.canvas.create_image(pad + 20, 38, image=logo_img, tags=("ui_element", logo_tag))
-        self.canvas.create_window(pad + 38, 38, window=self.lbl_brand_title, anchor="w", tags="ui_element")
+        
+        # Render "SkyCast" directly on canvas for 100% transparent background
+        self._draw_shadow_text(pad + 38, 38, "SkyCast", font=self.fonts["logo"], fill="#FFFFFF", anchor="w", tags=("ui_element", logo_tag))
 
         self.canvas.tag_bind(logo_tag, "<Button-1>", lambda e: self._toggle_about_popover())
         self.canvas.tag_bind(logo_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
@@ -1062,9 +1064,37 @@ class SkyCastMainWindow(tk.Tk):
         # Magnifying glass icon inside pill
         self._draw_shadow_text(pill_x + 12, pill_y + 16, "🔍", font=("Segoe UI", 11), fill="#94A3B8", anchor="w")
 
+        # Match tk.Entry background dynamically to the frosted pill color behind it
+        is_night = self.current_theme.get("time_phase") in ("night", "dusk")
+        try:
+            if self.bg_pil_image:
+                sample_x = min(max(pill_x + 50, 0), self.bg_pil_image.width - 1)
+                sample_y = min(max(pill_y + 16, 0), self.bg_pil_image.height - 1)
+                pixel = self.bg_pil_image.getpixel((sample_x, sample_y))
+                # Gaussian blur + dark overlay (45% #0F172A) + tint (30% white)
+                r1 = int(pixel[0] * 0.55 + 15 * 0.45)
+                g1 = int(pixel[1] * 0.55 + 23 * 0.45)
+                b1 = int(pixel[2] * 0.55 + 42 * 0.45)
+                r2 = int(r1 * 0.70 + 255 * 0.30)
+                g2 = int(g1 * 0.70 + 255 * 0.30)
+                b2 = int(b1 * 0.70 + 255 * 0.30)
+                pill_bg_hex = f"#{min(max(r2, 0), 255):02x}{min(max(g2, 0), 255):02x}{min(max(b2, 0), 255):02x}"
+            else:
+                pill_bg_hex = "#2c3a4f" if is_night else "#4a6583"
+        except Exception:
+            pill_bg_hex = "#2c3a4f" if is_night else "#4a6583"
+
+        self.search_entry.config(bg=pill_bg_hex)
+
         # Reposition Entry Widget
         entry_w = pill_w - 42
         self.canvas.create_window(pill_x + 32, pill_y + 6, window=self.search_entry, anchor="nw", width=entry_w, height=20, tags="ui_element")
+
+        # Button background styling matched to exact slate-blue glass hex color (#4a6583 day / #2c3a4f night)
+        glass_btn_bg = "#2c3a4f" if is_night else "#4a6583"
+        glass_btn_hover = "#3e526e" if is_night else "#5d7d9f"
+        for btn in (self.btn_refresh, self.btn_unit_toggle, self.btn_settings):
+            btn.config(bg=glass_btn_bg, activebackground=glass_btn_hover)
 
         # Settings Icon (tk.Button)
         gear_x = pad + bar_w - 20
@@ -1081,7 +1111,7 @@ class SkyCastMainWindow(tk.Tk):
         refresh_x = unit_x - 44
         self.canvas.create_window(refresh_x - 14, 38, window=self.btn_refresh, anchor="center", width=28, height=26, tags="ui_element")
 
-        # "Last updated X min ago" label (tk.Label)
+        # "Last updated X min ago" rendered directly on canvas for 100% transparent background
         elapsed_mins = int((time.time() - self.last_updated_time) / 60)
         if elapsed_mins <= 0:
             upd_str = "Updated just now"
@@ -1091,8 +1121,7 @@ class SkyCastMainWindow(tk.Tk):
             upd_str = f"Updated {elapsed_mins}m ago"
 
         upd_x = refresh_x - 32
-        self.lbl_updated_status.config(text=upd_str)
-        self.canvas.create_window(upd_x, 38, window=self.lbl_updated_status, anchor="e", tags="ui_element")
+        self._draw_shadow_text(upd_x, 38, upd_str, font=self.fonts["small_bold"], fill="#CBD5E1", anchor="e", tags="ui_element")
 
     def _draw_search_dropdown(self, w: int):
         """Floating autocomplete suggestions card showing City, Region, Country."""
@@ -1341,12 +1370,16 @@ class SkyCastMainWindow(tk.Tk):
         cur_x = tab_x
         tab_gap = 6 if is_compact else 10
         btn_h = 24 if is_compact else 28
+        is_night = self.current_theme.get("time_phase") in ("night", "dusk")
+        glass_btn_bg = "#2c3a4f" if is_night else "#4a6583"
+        glass_btn_hover = "#3e526e" if is_night else "#5d7d9f"
+
         for name, btn_widget, tw in tabs_map:
             is_active = (name == self.active_tab)
             if is_active:
                 btn_widget.config(bg="#0284c7", fg="#ffffff", activebackground="#0369a1")
             else:
-                btn_widget.config(bg="#3b4d66", fg="#cbd5e1", activebackground="#526b8a")
+                btn_widget.config(bg=glass_btn_bg, fg="#cbd5e1", activebackground=glass_btn_hover)
             self.canvas.create_window(cur_x, tab_y, window=btn_widget, anchor="nw", width=tw, height=btn_h, tags="ui_element")
             cur_x += tw + tab_gap
 
@@ -1698,7 +1731,13 @@ class SkyCastMainWindow(tk.Tk):
         self._draw_overview_tile_pressure(x + tile_w + gap_x, r2_y, tile_w, tile_h, press_val, clouds, is_compact)
 
         # --- Row 2, Col 3: Air Quality & Solar Times ---
-        aqi_val = aqi_data.get("european_aqi", 35) if aqi_data else 35
+        raw_aqi = aqi_data.get("european_aqi") if aqi_data else None
+        if raw_aqi is None or not isinstance(raw_aqi, (int, float)):
+            raw_aqi = aqi_data.get("us_aqi", 35) if aqi_data else 35
+        try:
+            aqi_val = int(min(max(float(raw_aqi), 0), 500))
+        except Exception:
+            aqi_val = 35
         sunrise_iso = daily.get("sunrise", [""])[0] if daily else ""
         sunset_iso = daily.get("sunset", [""])[0] if daily else ""
         self._draw_overview_tile_aqi(x + (tile_w + gap_x) * 2, r2_y, tile_w, tile_h, aqi_val, sunrise_iso, sunset_iso, is_compact)
@@ -1790,18 +1829,31 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.create_image(tx, ty, image=photo, anchor="nw", tags="glass_panel")
         self._draw_shadow_text(tx + 14, ty + 15, "Air Quality", self.fonts["body_bold"], fill="#FFFFFF", anchor="w")
 
-        aqi_sz = min(max(int(th * 0.44), 36), 56)
+        # Compact diamond icon positioned cleanly in upper right corner (size 26-30px)
+        aqi_sz = 26 if is_compact else 30
         aqi_img = get_weather_icon_image("aqi", size=aqi_sz)
         self._icon_refs.append(aqi_img)
-        self.canvas.create_image(tx + tw - 16 - aqi_sz // 2, ty + th // 2, image=aqi_img, tags="ui_element")
+        self.canvas.create_image(tx + tw - 16 - aqi_sz // 2, ty + 20, image=aqi_img, tags="ui_element")
 
-        aqi_level = get_aqi_level(aqi_val)
-        cat_name = aqi_level.get("category", "Good")
+        # Resolve AQI rating level & category
+        try:
+            val_int = int(min(max(float(aqi_val or 35), 0), 500))
+        except Exception:
+            val_int = 35
+        aqi_level = get_aqi_level(val_int)
+        cat_name = aqi_level.get("label", aqi_level.get("category", "Good"))
         col = aqi_level.get("color", "#10B981")
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{aqi_val} AQI", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
+        # Main numeric AQI value using exact same 26pt bold font size as other tiles
+        val_str = str(val_int)
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 5, val_str, self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
 
-        # Sunrise / sunset formatting
+        # Measure width of value string to place status label cleanly next to it without overlap
+        val_w = self.fonts["tile_val"].measure(val_str)
+        status_x = tx + 14 + val_w + 8
+        self._draw_shadow_text(status_x, ty + th // 2 + 8, f"AQI • {cat_name}", self.fonts["small_bold"], fill=col, anchor="w")
+
+        # Sunrise / sunset formatting on bottom row
         sun_str = ""
         if "T" in sunrise_iso and "T" in sunset_iso:
             try:
@@ -1811,8 +1863,8 @@ class SkyCastMainWindow(tk.Tk):
             except Exception:
                 pass
 
-        caption = sun_str if sun_str and tw > 210 else f"Quality: {cat_name}"
-        self._draw_shadow_text(tx + 14, ty + th - 13, caption, self.fonts["small_bold"], fill=col if "Quality" in caption else "#CBD5E1", anchor="w")
+        bottom_text = sun_str if sun_str else f"Status: {cat_name}"
+        self._draw_shadow_text(tx + 14, ty + th - 13, bottom_text, self.fonts["small_bold"], fill="#CBD5E1", anchor="w")
 
     # ========================================================================
     # Loading Spinner Overlay & Error Notification Banner
