@@ -1,3 +1,4 @@
-# Pinned Python dependencies for SkyCast (Tkinter is included in standard Python)
-Pillow==13.0.0
-requests==2.34.2
+# SkyCast Desktop Application Dependencies
+# Note: Tkinter is part of the Python standard library
+Pillow>=10.0.0
+requests>=2.31.0
