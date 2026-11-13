@@ -1898,26 +1898,35 @@ class SkyCastMainWindow(tk.Tk):
     # Loading Spinner Overlay & Error Notification Banner
     # ========================================================================
     def _draw_loading_overlay(self, w: int, h: int):
-        card_w = 280
-        card_h = 80
+        card_w = 340
+        card_h = 76
         cx = w // 2 - card_w // 2
         cy = h // 2 - card_h // 2
 
-        photo = render_frosted_glass_panel(self.bg_pil_image, cx, cy, card_w, card_h, radius=18, blur_radius=22, tint_opacity=0.35, dark_overlay_opacity=0.55)
+        photo = render_frosted_glass_panel(
+            self.bg_pil_image, cx, cy, card_w, card_h,
+            radius=18, blur_radius=22, tint_opacity=0.35, dark_overlay_opacity=0.60, border_opacity=130
+        )
         self.canvas.create_image(cx, cy, image=photo, anchor="nw", tags="overlay_glass")
 
-        # Animated spinning arc indicator
+        # Animated spinning arc indicator (cleanly centered)
         spinner_angle = getattr(self, "_spinner_angle", 0)
         self._spinner_angle = (spinner_angle + 30) % 360
+        spin_r = 16
+        spin_cx = cx + 34
+        spin_cy = cy + card_h // 2
         self.canvas.create_arc(
-            cx + 20, cy + 24, cx + 54, cy + 58,
-            start=spinner_angle, extent=280,
+            spin_cx - spin_r, spin_cy - spin_r,
+            spin_cx + spin_r, spin_cy + spin_r,
+            start=spinner_angle, extent=270,
             style="arc", outline="#38BDF8", width=3,
             tags="overlay"
         )
 
+        # Texts cleanly aligned with generous padding and vertical balance
+        text_x = cx + 64
         self._draw_shadow_text(
-            cx + 68, cy + 28,
+            text_x, cy + (card_h // 2) - 10,
             "Updating SkyCast...",
             self.fonts["body_bold"],
             fill="#FFFFFF",
@@ -1925,7 +1934,7 @@ class SkyCastMainWindow(tk.Tk):
             tags="overlay"
         )
         self._draw_shadow_text(
-            cx + 68, cy + 50,
+            text_x, cy + (card_h // 2) + 12,
             "Fetching live Open-Meteo metrics",
             self.fonts["small"],
             fill="#38BDF8",
