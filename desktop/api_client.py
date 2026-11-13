@@ -18,6 +18,37 @@ import re
 import threading
 from typing import Dict, Any, List, Optional, Callable
 
+def calculate_aqi_from_pm25(pm25: float) -> int:
+    """
+    Standard EPA / Indian National Air Quality Index (NAQI) conversion from PM2.5 (ug/m3):
+    Breakpoints (C_low - C_high) -> AQI (I_low - I_high)
+      0.0 -  12.0 ->   0 -  50 (Good)
+     12.1 -  35.4 ->  51 - 100 (Moderate)
+     35.5 -  55.4 -> 101 - 150 (Unhealthy for Sensitive Groups)
+     55.5 - 150.4 -> 151 - 200 (Unhealthy)
+    150.5 - 250.4 -> 201 - 300 (Very Unhealthy)
+    250.5 - 350.4 -> 301 - 400 (Hazardous)
+    350.5 - 500.4 -> 401 - 500 (Hazardous)
+    """
+    if pm25 is None or pm25 < 0:
+        return 50
+    c = round(float(pm25), 1)
+    breakpoints = [
+        (0.0, 12.0, 0, 50),
+        (12.1, 35.4, 51, 100),
+        (35.5, 55.4, 101, 150),
+        (55.5, 150.4, 151, 200),
+        (150.5, 250.4, 201, 300),
+        (250.5, 350.4, 301, 400),
+        (350.5, 500.4, 401, 500),
+    ]
+    for c_low, c_high, i_low, i_high in breakpoints:
+        if c_low <= c <= c_high:
+            return round(((i_high - i_low) / (c_high - c_low)) * (c - c_low) + i_low)
+    if c > 500.4:
+        return 500
+    return 50
+
 class WeatherApiClient:
     GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
     FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -141,30 +172,40 @@ class WeatherApiClient:
             aq_params = {
                 "latitude": lat,
                 "longitude": lon,
-                "current": "european_aqi,us_aqi,pm10,pm2_5",
+                "current": "us_aqi,european_aqi,pm2_5,pm10",
                 "timezone": "auto"
             }
             aq_resp = requests.get(self.AIR_QUALITY_URL, params=aq_params, timeout=self.timeout)
             if aq_resp.ok:
                 raw_aq = aq_resp.json().get("current", {})
-                eu = raw_aq.get("european_aqi")
-                us = raw_aq.get("us_aqi")
+                us_aqi = raw_aq.get("us_aqi")
+                eu_aqi = raw_aq.get("european_aqi")
+                pm2_5 = raw_aq.get("pm2_5")
+                pm10 = raw_aq.get("pm10")
 
-                # Extract value: prefer european_aqi, fallback to us_aqi, clamp 0-500, default to 35 if null
-                aqi_clean = 35
-                if eu is not None and isinstance(eu, (int, float)):
-                    aqi_clean = int(min(max(float(eu), 0), 500))
-                elif us is not None and isinstance(us, (int, float)):
-                    aqi_clean = int(min(max(float(us), 0), 500))
+                # Extract US/Indian standard AQI (0-500 scale)
+                aqi_clean = None
+                if us_aqi is not None and isinstance(us_aqi, (int, float)) and float(us_aqi) > 0:
+                    aqi_clean = int(min(max(float(us_aqi), 0), 500))
+                elif pm2_5 is not None and isinstance(pm2_5, (int, float)):
+                    # Calculate standard EPA / Indian AQI directly from PM2.5 concentration
+                    aqi_clean = calculate_aqi_from_pm25(float(pm2_5))
+                elif eu_aqi is not None and isinstance(eu_aqi, (int, float)):
+                    # Approximate European AQI (0-100) -> standard scale (0-500)
+                    aqi_clean = int(min(max(float(eu_aqi) * 2.5, 0), 500))
+                else:
+                    aqi_clean = 50
 
-                raw_aq["european_aqi"] = aqi_clean
-                raw_aq["us_aqi"] = int(min(max(float(us), 0), 500)) if us is not None and isinstance(us, (int, float)) else aqi_clean
+                raw_aq["us_aqi"] = aqi_clean
+                raw_aq["aqi"] = aqi_clean
+                raw_aq["pm2_5"] = round(float(pm2_5), 1) if pm2_5 is not None else 12.0
+                raw_aq["pm10"] = round(float(pm10), 1) if pm10 is not None else 20.0
                 aqi_payload = raw_aq
         except Exception:
             pass  # Air quality failure must never prevent core weather from loading
 
-        if not aqi_payload or "european_aqi" not in aqi_payload:
-            aqi_payload = {"european_aqi": 35, "us_aqi": 35}
+        if not aqi_payload or "us_aqi" not in aqi_payload:
+            aqi_payload = {"us_aqi": 50, "aqi": 50, "pm2_5": 12.0, "pm10": 20.0}
 
         weather_payload["air_quality"] = aqi_payload
         return weather_payload

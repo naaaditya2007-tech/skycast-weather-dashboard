@@ -1731,16 +1731,17 @@ class SkyCastMainWindow(tk.Tk):
         self._draw_overview_tile_pressure(x + tile_w + gap_x, r2_y, tile_w, tile_h, press_val, clouds, is_compact)
 
         # --- Row 2, Col 3: Air Quality & Solar Times ---
-        raw_aqi = aqi_data.get("european_aqi") if aqi_data else None
+        raw_aqi = aqi_data.get("us_aqi") if aqi_data else None
         if raw_aqi is None or not isinstance(raw_aqi, (int, float)):
-            raw_aqi = aqi_data.get("us_aqi", 35) if aqi_data else 35
+            raw_aqi = aqi_data.get("aqi", aqi_data.get("european_aqi", 50)) if aqi_data else 50
         try:
             aqi_val = int(min(max(float(raw_aqi), 0), 500))
         except Exception:
-            aqi_val = 35
+            aqi_val = 50
+        pm25_val = aqi_data.get("pm2_5", 12.0) if aqi_data else 12.0
         sunrise_iso = daily.get("sunrise", [""])[0] if daily else ""
         sunset_iso = daily.get("sunset", [""])[0] if daily else ""
-        self._draw_overview_tile_aqi(x + (tile_w + gap_x) * 2, r2_y, tile_w, tile_h, aqi_val, sunrise_iso, sunset_iso, is_compact)
+        self._draw_overview_tile_aqi(x + (tile_w + gap_x) * 2, r2_y, tile_w, tile_h, aqi_val, pm25_val, sunrise_iso, sunset_iso, is_compact)
 
     def _draw_overview_tile_humidity(self, tx, ty, tw, th, hum_val, dew_pt, is_compact):
         photo = render_frosted_glass_panel(self.bg_pil_image, tx, ty, tw, th, radius=16, blur_radius=16, tint_opacity=0.25, dark_overlay_opacity=0.35)
@@ -1824,47 +1825,57 @@ class SkyCastMainWindow(tk.Tk):
         self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{press_val} hPa", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
         self._draw_shadow_text(tx + 14, ty + th - 13, f"Cloud cover: {clouds}%", self.fonts["small_bold"], fill="#38BDF8", anchor="w")
 
-    def _draw_overview_tile_aqi(self, tx, ty, tw, th, aqi_val, sunrise_iso, sunset_iso, is_compact):
+    def _draw_overview_tile_aqi(self, tx, ty, tw, th, aqi_val, pm25_val, sunrise_iso, sunset_iso, is_compact):
         photo = render_frosted_glass_panel(self.bg_pil_image, tx, ty, tw, th, radius=16, blur_radius=16, tint_opacity=0.25, dark_overlay_opacity=0.35)
         self.canvas.create_image(tx, ty, image=photo, anchor="nw", tags="glass_panel")
         self._draw_shadow_text(tx + 14, ty + 15, "Air Quality", self.fonts["body_bold"], fill="#FFFFFF", anchor="w")
 
-        # Compact diamond icon positioned cleanly in upper right corner (size 26-30px)
-        aqi_sz = 26 if is_compact else 30
+        # Compact diamond icon positioned cleanly in upper right corner (size 24px)
+        aqi_sz = 22 if is_compact else 24
         aqi_img = get_weather_icon_image("aqi", size=aqi_sz)
         self._icon_refs.append(aqi_img)
-        self.canvas.create_image(tx + tw - 16 - aqi_sz // 2, ty + 20, image=aqi_img, tags="ui_element")
+        self.canvas.create_image(tx + tw - 16 - aqi_sz // 2, ty + 18, image=aqi_img, tags="ui_element")
 
-        # Resolve AQI rating level & category
+        # Resolve AQI rating level & category (0-500 US/Indian standard scale)
         try:
-            val_int = int(min(max(float(aqi_val or 35), 0), 500))
+            val_int = int(min(max(float(aqi_val or 50), 0), 500))
         except Exception:
-            val_int = 35
+            val_int = 50
         aqi_level = get_aqi_level(val_int)
         cat_name = aqi_level.get("label", aqi_level.get("category", "Good"))
         col = aqi_level.get("color", "#10B981")
 
-        # Main numeric AQI value using exact same 26pt bold font size as other tiles
-        val_str = str(val_int)
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 5, val_str, self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
+        # Display integer AQI value (f"{val_int} AQI") in exact same 26pt bold font as other 5 overview cards
+        val_str = f"{val_int} AQI"
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 3, val_str, self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
 
-        # Measure width of value string to place status label cleanly next to it without overlap
+        # Category label cleanly aligned beside the AQI value
         val_w = self.fonts["tile_val"].measure(val_str)
+        cat_display = "Sensitive" if "Sensitive" in cat_name else ("V.Unhealthy" if "Very" in cat_name else cat_name)
         status_x = tx + 14 + val_w + 8
-        self._draw_shadow_text(status_x, ty + th // 2 + 8, f"AQI • {cat_name}", self.fonts["small_bold"], fill=col, anchor="w")
+        if status_x + self.fonts["small_bold"].measure(cat_display) <= tx + tw - 12:
+            self._draw_shadow_text(status_x, ty + th // 2 + 6, cat_display, self.fonts["small_bold"], fill=col, anchor="w")
+        else:
+            self._draw_shadow_text(tx + tw - 14, ty + th // 2 + 6, cat_display, self.fonts["small_bold"], fill=col, anchor="e")
 
-        # Sunrise / sunset formatting on bottom row
-        sun_str = ""
+        # Bottom Subtitle: PM2.5: {pm25} µg/m³ and solar times
+        pm_str = f"PM2.5: {pm25_val} µg/m³" if pm25_val is not None else "PM2.5: -- µg/m³"
+
+        sun_short = ""
         if "T" in sunrise_iso and "T" in sunset_iso:
             try:
                 sr = sunrise_iso.split("T")[1][:5]
                 ss = sunset_iso.split("T")[1][:5]
-                sun_str = f"☀️ {sr} • 🌙 {ss}"
+                sun_short = f"☀️{sr} 🌙{ss}"
             except Exception:
                 pass
 
-        bottom_text = sun_str if sun_str else f"Status: {cat_name}"
-        self._draw_shadow_text(tx + 14, ty + th - 13, bottom_text, self.fonts["small_bold"], fill="#CBD5E1", anchor="w")
+        pm_w = self.fonts["small_bold"].measure(pm_str)
+        sun_w = self.fonts["small_bold"].measure(sun_short) if sun_short else 0
+
+        self._draw_shadow_text(tx + 14, ty + th - 13, pm_str, self.fonts["small_bold"], fill="#38BDF8", anchor="w")
+        if sun_short and (pm_w + sun_w + 36 <= tw):
+            self._draw_shadow_text(tx + tw - 14, ty + th - 13, sun_short, self.fonts["small_bold"], fill="#CBD5E1", anchor="e")
 
     # ========================================================================
     # Loading Spinner Overlay & Error Notification Banner

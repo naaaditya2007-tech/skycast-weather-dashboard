@@ -606,21 +606,21 @@ def get_weather_info(code: int, is_day: int = 1) -> Dict[str, Any]:
     """Compatibility helper returning resolved theme dictionary."""
     return resolve_theme(wmo_code=code, is_day=is_day)
 
-def get_aqi_level(european_aqi: Optional[float]) -> Dict[str, Any]:
-    """European Air Quality Index (AQI) scale."""
-    val = round(float(european_aqi or 0))
-    if val <= 20:
-        return {"val": val, "label": "Good", "color": "#10B981"}
-    elif val <= 40:
-        return {"val": val, "label": "Fair", "color": "#FBBF24"}
-    elif val <= 60:
-        return {"val": val, "label": "Moderate", "color": "#F97316"}
-    elif val <= 80:
-        return {"val": val, "label": "Poor", "color": "#EF4444"}
+def get_aqi_level(aqi: Optional[float]) -> Dict[str, Any]:
+    """Standard 0–500 US / Indian Air Quality Index (AQI) scale."""
+    val = round(float(aqi or 0))
+    if val <= 50:
+        return {"val": val, "label": "Good", "category": "Good", "color": "#10B981"}
     elif val <= 100:
-        return {"val": val, "label": "Very Poor", "color": "#A855F7"}
+        return {"val": val, "label": "Moderate", "category": "Moderate", "color": "#F59E0B"}
+    elif val <= 150:
+        return {"val": val, "label": "Sensitive", "category": "Sensitive Groups", "color": "#F97316"}
+    elif val <= 200:
+        return {"val": val, "label": "Unhealthy", "category": "Unhealthy", "color": "#EF4444"}
+    elif val <= 300:
+        return {"val": val, "label": "Very Unhealthy", "category": "Very Unhealthy", "color": "#8B5CF6"}
     else:
-        return {"val": val, "label": "Hazardous", "color": "#881337"}
+        return {"val": val, "label": "Hazardous", "category": "Hazardous", "color": "#7F1D1D"}
 
 def get_uv_level(uv_val: Optional[float]) -> Dict[str, Any]:
     """WHO UV Index categories."""
