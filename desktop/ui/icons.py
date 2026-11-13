@@ -15,7 +15,7 @@ _ICON_CACHE: Dict[Tuple[str, int], ImageTk.PhotoImage] = {}
 def get_icon_for_wmo(code: int, is_day: int = 1) -> str:
     """Map WMO weather code to icon name."""
     if code == 0:
-        return "sun" if is_day else "clear_night"
+        return "sun" if is_day else "moon"
     elif code in (1, 2):
         return "partly" if is_day else "partly_night"
     elif code == 3:
@@ -53,7 +53,57 @@ def get_weather_icon_image(icon_name: str, size: int = 32) -> ImageTk.PhotoImage
 
     name = icon_name.lower()
 
-    if "sun" in name or "clear" in name:
+    if "moon" in name or "clear_night" in name or name == "night":
+        # Crescent Moon with twinkling star
+        cx, cy = w // 2, w // 2
+        r = int(w * 0.32)
+        so = 1 * scale
+
+        # Moon mask
+        moon_mask = Image.new("L", (canvas_size, canvas_size), 0)
+        m_draw = ImageDraw.Draw(moon_mask)
+        m_draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=255)
+        cut_ox = int(r * 0.55)
+        cut_oy = -int(r * 0.25)
+        m_draw.ellipse([cx - r + cut_ox, cy - r + cut_oy, cx + r + cut_ox, cy + r + cut_oy], fill=0)
+
+        # Shadow mask
+        shadow_mask = Image.new("L", (canvas_size, canvas_size), 0)
+        s_draw = ImageDraw.Draw(shadow_mask)
+        s_draw.ellipse([cx - r + so, cy - r + so, cx + r + so, cy + r + so], fill=160)
+        s_draw.ellipse([cx - r + cut_ox + so, cy - r + cut_oy + so, cx + r + cut_ox + so, cy + r + cut_oy + so], fill=0)
+
+        shadow_layer = Image.new("RGBA", (canvas_size, canvas_size), (15, 23, 42, 200))
+        img.paste(shadow_layer, (0, 0), shadow_mask)
+
+        moon_layer = Image.new("RGBA", (canvas_size, canvas_size), (254, 240, 138, 255))
+        img.paste(moon_layer, (0, 0), moon_mask)
+
+        # Twinkling star next to moon
+        star_x, star_y = cx + int(w * 0.22), cy - int(w * 0.22)
+        star_r = max(3 * scale, 3)
+        draw.line([(star_x, star_y - star_r), (star_x, star_y + star_r)], fill=(255, 255, 255, 230), width=max(1 * scale, 1))
+        draw.line([(star_x - star_r, star_y), (star_x + star_r, star_y)], fill=(255, 255, 255, 230), width=max(1 * scale, 1))
+
+    elif "partly_night" in name or ("partly" in name and "night" in name):
+        # Crescent moon peeking behind cloud
+        mx, my = int(w * 0.62), int(w * 0.35)
+        mr = int(w * 0.22)
+
+        moon_mask = Image.new("L", (canvas_size, canvas_size), 0)
+        m_draw = ImageDraw.Draw(moon_mask)
+        m_draw.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=255)
+        cut_ox = int(mr * 0.55)
+        cut_oy = -int(mr * 0.25)
+        m_draw.ellipse([mx - mr + cut_ox, my - mr + cut_oy, mx + mr + cut_ox, my + mr + cut_oy], fill=0)
+
+        moon_layer = Image.new("RGBA", (canvas_size, canvas_size), (254, 240, 138, 255))
+        img.paste(moon_layer, (0, 0), moon_mask)
+
+        # Cloud in foreground
+        _draw_cloud(draw, w, scale, offset_y=int(w * 0.12), fill=(255, 255, 255, 245))
+
+    elif "sun" in name or "clear" in name:
         # Golden Sun
         cx, cy = w // 2, w // 2
         r = int(w * 0.28)

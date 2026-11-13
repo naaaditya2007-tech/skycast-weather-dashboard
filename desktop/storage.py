@@ -28,19 +28,19 @@ DEFAULT_SETTINGS = {
         "pressure": "hPa"       # "hPa" | "inHg"
     },
     "last_city": {
-        "name": "London",
-        "country": "United Kingdom",
-        "admin1": "England",
-        "latitude": 51.5074,
-        "longitude": -0.1278,
-        "timezone": "Europe/London"
+        "name": "Chennai",
+        "country": "India",
+        "admin1": "Tamil Nadu",
+        "latitude": 13.0827,
+        "longitude": 80.2707,
+        "timezone": "Asia/Kolkata"
     },
     "favorites": [
-        {"name": "Beijing", "country": "China", "admin1": "Beijing", "latitude": 39.9042, "longitude": 116.4074},
-        {"name": "Tokyo", "country": "Japan", "admin1": "Tokyo", "latitude": 35.6895, "longitude": 139.6917},
-        {"name": "Brasília", "country": "Brazil", "admin1": "Federal District", "latitude": -15.7939, "longitude": -47.8828},
-        {"name": "Berlin", "country": "Germany", "admin1": "Berlin", "latitude": 52.5200, "longitude": 13.4050},
-        {"name": "Canberra", "country": "Australia", "admin1": "Australian Capital Territory", "latitude": -35.2809, "longitude": 149.1300}
+        {"name": "Bengaluru", "country": "India", "admin1": "Karnataka", "latitude": 12.9716, "longitude": 77.5946},
+        {"name": "Mumbai", "country": "India", "admin1": "Maharashtra", "latitude": 19.0760, "longitude": 72.8777},
+        {"name": "New Delhi", "country": "India", "admin1": "Delhi", "latitude": 28.6139, "longitude": 77.2090},
+        {"name": "Hyderabad", "country": "India", "admin1": "Telangana", "latitude": 17.3850, "longitude": 78.4867},
+        {"name": "Kolkata", "country": "India", "admin1": "West Bengal", "latitude": 22.5726, "longitude": 88.3639}
     ],
     "cache": None,
     "cache_timestamp": 0

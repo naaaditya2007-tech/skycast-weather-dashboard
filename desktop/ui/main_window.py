@@ -59,6 +59,97 @@ from desktop.ui.icons import get_weather_icon_image, get_icon_for_wmo
 from desktop.ui.other_cities import OtherCitiesPanel, truncate_text
 from desktop.ui.animations import WeatherAnimator
 
+PREVIEW_PRESETS = [
+    {
+        "label": "Rain — Day",
+        "wallpaper": "partly_cloudy.jpg",
+        "anim": "rain",
+        "wmo": 63,
+        "is_day": 1,
+        "temp": 14,
+        "apparent": 13,
+        "cond": "Moderate Rain",
+        "summary": "Persistent rain showers with overcast skies. Keep an umbrella handy."
+    },
+    {
+        "label": "Thunderstorm — Night",
+        "wallpaper": "rain_night.jpg",
+        "anim": "thunderstorm",
+        "wmo": 95,
+        "is_day": 0,
+        "temp": 17,
+        "apparent": 16,
+        "cond": "Thunderstorm",
+        "summary": "Active lightning strikes and heavy downpours throughout the night."
+    },
+    {
+        "label": "Snow — Day",
+        "wallpaper": "snow.jpg",
+        "anim": "snow",
+        "wmo": 73,
+        "is_day": 1,
+        "temp": -2,
+        "apparent": -6,
+        "cond": "Snow Showers",
+        "summary": "Crisp winter flurries with drifting snow and sub-zero temperatures."
+    },
+    {
+        "label": "Clear — Night",
+        "wallpaper": "clear_night.jpg",
+        "anim": "stars",
+        "wmo": 0,
+        "is_day": 0,
+        "temp": 8,
+        "apparent": 7,
+        "cond": "Clear Sky",
+        "summary": "Brilliant starry sky with calm winds and cool nighttime temperatures."
+    },
+    {
+        "label": "Fog — Dawn",
+        "wallpaper": "fog.jpg",
+        "anim": "fog",
+        "wmo": 45,
+        "is_day": 1,
+        "temp": 6,
+        "apparent": 5,
+        "cond": "Dense Fog",
+        "summary": "Misty morning haze with low visibility. Gentle warming expected later."
+    },
+    {
+        "label": "Clear — Day",
+        "wallpaper": "clear_day.jpg",
+        "anim": "clouds",
+        "wmo": 0,
+        "is_day": 1,
+        "temp": 22,
+        "apparent": 21,
+        "cond": "Sunny & Clear",
+        "summary": "Bright sunny afternoon with gentle breeze and perfect outdoor weather."
+    },
+    {
+        "label": "Drizzle — Day",
+        "wallpaper": "cloudy.jpg",
+        "anim": "drizzle",
+        "wmo": 51,
+        "is_day": 1,
+        "temp": 12,
+        "apparent": 11,
+        "cond": "Light Drizzle",
+        "summary": "Fine misty drizzle under cool overcast cloud layers."
+    },
+    {
+        "label": "Overcast — Evening",
+        "wallpaper": "cloudy.jpg",
+        "anim": "clouds",
+        "wmo": 3,
+        "is_day": 0,
+        "temp": 11,
+        "apparent": 10,
+        "cond": "Overcast Evening",
+        "summary": "Dense cloud cover with rich sunset hues and light evening breeze."
+    }
+]
+
 class SkyCastMainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -118,6 +209,15 @@ class SkyCastMainWindow(tk.Tk):
         self.sixteen_days_page: int = 0
         self.is_fading: bool = False
 
+        # Popovers & Interactive Top-Bar State
+        self.show_settings_popover: bool = False
+        self.show_about_popover: bool = False
+        self.settings_popover_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)
+        self.about_popover_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)
+        self.cache_cleared_notice: bool = False
+        self._last_gear_x: int = 0
+        self._last_logo_x: int = 0
+
         # Right Column Favorites Panel
         self.other_cities_panel = OtherCitiesPanel(
             self.canvas,
@@ -144,6 +244,7 @@ class SkyCastMainWindow(tk.Tk):
             "logo": tkfont.Font(family="Segoe UI", size=15, weight="bold"),
             "city_title": tkfont.Font(family="Segoe UI", size=19, weight="bold"),
             "temp_huge": tkfont.Font(family="Segoe UI", size=48, weight="bold"),
+            "tile_val": tkfont.Font(family="Segoe UI", size=24, weight="bold"),
             "h2": tkfont.Font(family="Segoe UI", size=13, weight="bold"),
             "h3": tkfont.Font(family="Segoe UI", size=11, weight="bold"),
             "body": tkfont.Font(family="Segoe UI", size=10),
@@ -290,9 +391,27 @@ class SkyCastMainWindow(tk.Tk):
         self._render_all_panels()
 
     def _on_canvas_click(self, event):
-        """Close dropdown when clicking outside search field."""
+        """Close dropdown and popovers when clicking outside."""
+        cx, cy = event.x, event.y
+
         if self.show_search_dropdown:
             self._close_search_dropdown()
+
+        if self.show_settings_popover:
+            x1, y1, x2, y2 = self.settings_popover_bbox
+            if not (x1 <= cx <= x2 and y1 <= cy <= y2):
+                gear_x = getattr(self, "_last_gear_x", 0)
+                if abs(cx - gear_x) > 20 or abs(cy - 38) > 20:
+                    self.show_settings_popover = False
+                    self._render_all_panels()
+
+        if self.show_about_popover:
+            x1, y1, x2, y2 = self.about_popover_bbox
+            if not (x1 <= cx <= x2 and y1 <= cy <= y2):
+                logo_x = getattr(self, "_last_logo_x", 0)
+                if abs(cx - logo_x) > 55 or abs(cy - 38) > 20:
+                    self.show_about_popover = False
+                    self._render_all_panels()
 
     # ========================================================================
     # Weather Data Loading
@@ -516,6 +635,7 @@ class SkyCastMainWindow(tk.Tk):
         # Update typography scale based on width
         is_compact = (w < 950)
         self.fonts["city_title"].config(size=16 if is_compact else 20)
+        self.fonts["tile_val"].config(size=20 if is_compact else 24)
         self.fonts["h2"].config(size=12 if is_compact else 13)
         self.fonts["body"].config(size=9 if is_compact else 10)
         self.fonts["body_bold"].config(size=9 if is_compact else 10)
@@ -635,6 +755,14 @@ class SkyCastMainWindow(tk.Tk):
         if self.is_loading:
             self._draw_loading_overlay(w, h)
 
+        # 12. Settings Popover (if open)
+        if self.show_settings_popover:
+            self._draw_settings_popover(w)
+
+        # 13. About / Quick Switcher Popover (if open)
+        if self.show_about_popover:
+            self._draw_about_popover(w)
+
         # Stacking order: bg_image at bottom, then anim_particle, then glass panels, then ui_element, then overlay
         self.canvas.tag_lower("bg_image")
         if self.canvas.find_withtag("anim_particle"):
@@ -666,9 +794,18 @@ class SkyCastMainWindow(tk.Tk):
         )
         self.canvas.create_image(pad, 14, image=bar_photo, anchor="nw", tags="glass_panel")
 
-        # Hamburger + Brand Logo
-        self._draw_shadow_text(pad + 20, 38, "☰", font=("Segoe UI", 14), fill="#FFFFFF", anchor="w")
-        self._draw_shadow_text(pad + 48, 38, "SkyCast", font=self.fonts["logo"], fill="#FFFFFF", anchor="w")
+        # Clean Custom Vector Weather Logo (Sun behind Cloud) + Brand Title
+        logo_sz = 26
+        logo_img = get_weather_icon_image("partly", size=logo_sz)
+        self._icon_refs.append(logo_img)
+        logo_tag = "btn_brand_logo"
+        self._last_logo_x = pad + 20
+        self.canvas.create_image(pad + 20, 38, image=logo_img, tags=("ui_element", logo_tag))
+        self._draw_shadow_text(pad + 40, 38, "SkyCast", font=self.fonts["logo"], fill="#FFFFFF", anchor="w", tags=("ui_element", logo_tag))
+
+        self.canvas.tag_bind(logo_tag, "<Button-1>", lambda e: self._toggle_about_popover())
+        self.canvas.tag_bind(logo_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(logo_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
         # Pill Search Field
         pill_w = min(max(int(w * 0.32), 220), 340)
@@ -695,9 +832,16 @@ class SkyCastMainWindow(tk.Tk):
         entry_w = pill_w - 42
         self.canvas.create_window(pill_x + 32, pill_y + 6, window=self.search_entry, anchor="nw", width=entry_w, height=20, tags="ui_element")
 
-        # Settings Icon
+        # Settings Icon (Gear) with popover toggle
         gear_x = pad + bar_w - 24
-        self._draw_shadow_text(gear_x, 38, "⚙", font=("Segoe UI", 16), fill="#FFFFFF", anchor="e")
+        self._last_gear_x = gear_x
+        gear_tag = "btn_settings_gear"
+        gear_fill = "#38BDF8" if self.show_settings_popover else "#FFFFFF"
+        self._draw_shadow_text(gear_x, 38, "⚙", font=("Segoe UI", 16), fill=gear_fill, anchor="e", tags=("ui_element", gear_tag))
+
+        self.canvas.tag_bind(gear_tag, "<Button-1>", lambda e: self._toggle_settings_popover())
+        self.canvas.tag_bind(gear_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(gear_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
         # Unit Toggle Button (°C / °F)
         unit_x = gear_x - 38
@@ -1073,6 +1217,12 @@ class SkyCastMainWindow(tk.Tk):
             # Icon
             wmo = h_wmos[i] if i < len(h_wmos) else 0
             is_d = h_is_days[i] if i < len(h_is_days) else 1
+            try:
+                hour_val = int(time_label.split(":")[0])
+                if hour_val < 6 or hour_val >= 18:
+                    is_d = 0
+            except Exception:
+                pass
             icon_kind = get_icon_for_wmo(wmo, is_d)
             icon_sz = min(max(card_w - 14, 20), 28)
             icon_img = get_weather_icon_image(icon_kind, size=icon_sz)
@@ -1148,7 +1298,8 @@ class SkyCastMainWindow(tk.Tk):
         lx = cx + low_idx * step_x
         ly = cy + ch - 16 - ((temps[low_idx] - min_t) / span_t) * (ch - 24)
         self.canvas.create_oval(lx - 3, ly - 3, lx + 3, ly + 3, fill="#38BDF8", outline="#FFFFFF", width=1, tags="ui_element")
-        self._draw_shadow_text(lx, ly + 10, f"Low {round(temps[low_idx])}{temp_sym}", font=self.fonts["chart_label"], fill="#38BDF8", anchor="center")
+        low_label_y = ly - 10 if ly >= (cy + ch - 26) else ly + 10
+        self._draw_shadow_text(lx, low_label_y, f"Low {round(temps[low_idx])}{temp_sym}", font=self.fonts["chart_label"], fill="#38BDF8", anchor="center")
 
         # Time markers at bottom (00:00, 06:00, 12:00, 18:00)
         for hour_step in (0, 6, 12, 18):
@@ -1348,7 +1499,7 @@ class SkyCastMainWindow(tk.Tk):
         self._icon_refs.append(drop_img)
         self.canvas.create_image(tx + tw - 16 - drop_sz // 2, ty + th // 2, image=drop_img, tags="ui_element")
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{hum_val}%", self.fonts["temp_huge"], fill="#FFFFFF", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{hum_val}%", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
         self._draw_shadow_text(tx + 14, ty + th - 13, f"Dew point: {dew_pt}°", self.fonts["small_bold"], fill="#38BDF8", anchor="w")
 
     def _draw_overview_tile_uv(self, tx, ty, tw, th, uv_val, is_compact):
@@ -1370,7 +1521,7 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.create_rectangle(bar_x + 1, fill_y, bar_x + bar_w - 1, bar_y2 - 1, fill=fill_col, outline="", tags="ui_element")
 
         uv_cat = "Low" if uv_val < 3 else ("Moderate" if uv_val < 6 else ("Very High" if uv_val < 8 else "Extreme"))
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{uv_val}", self.fonts["temp_huge"], fill="#FFFFFF", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{uv_val}", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
         self._draw_shadow_text(tx + 14, ty + th - 13, uv_cat, self.fonts["small_bold"], fill=fill_col, anchor="w")
 
     def _draw_overview_tile_visibility(self, tx, ty, tw, th, vis_km, is_compact):
@@ -1383,7 +1534,7 @@ class SkyCastMainWindow(tk.Tk):
         self._icon_refs.append(vis_img)
         self.canvas.create_image(tx + tw - 16 - vis_sz // 2, ty + th // 2, image=vis_img, tags="ui_element")
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{vis_km} km", self.fonts["h2"], fill="#FFFFFF", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{vis_km} km", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
         vis_status = "Clear & unobstructed" if vis_km >= 10 else ("Haze affecting range" if vis_km >= 5 else "Dense fog / mist")
         self._draw_shadow_text(tx + 14, ty + th - 13, vis_status, self.fonts["small_bold"], fill="#CBD5E1", anchor="w")
 
@@ -1402,8 +1553,9 @@ class SkyCastMainWindow(tk.Tk):
         idx = int((wind_deg + 22.5) / 45.0) % 8
         cardinal = directions[idx]
         wind_unit = self.units.get("wind", "kmh")
+        disp_unit = "km/h" if wind_unit == "kmh" else wind_unit
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{wind_spd} {wind_unit}", self.fonts["h2"], fill="#FFFFFF", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{wind_spd} {disp_unit}", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
         self._draw_shadow_text(tx + 14, ty + th - 13, f"Blowing from {cardinal}", self.fonts["small_bold"], fill="#CBD5E1", anchor="w")
 
     def _draw_overview_tile_pressure(self, tx, ty, tw, th, press_val, clouds, is_compact):
@@ -1416,7 +1568,7 @@ class SkyCastMainWindow(tk.Tk):
         self._icon_refs.append(baro_img)
         self.canvas.create_image(tx + tw - 16 - baro_sz // 2, ty + th // 2, image=baro_img, tags="ui_element")
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{press_val} hPa", self.fonts["h2"], fill="#FFFFFF", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{press_val} hPa", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
         self._draw_shadow_text(tx + 14, ty + th - 13, f"Cloud cover: {clouds}%", self.fonts["small_bold"], fill="#38BDF8", anchor="w")
 
     def _draw_overview_tile_aqi(self, tx, ty, tw, th, aqi_val, sunrise_iso, sunset_iso, is_compact):
@@ -1433,7 +1585,7 @@ class SkyCastMainWindow(tk.Tk):
         cat_name = aqi_level.get("category", "Good")
         col = aqi_level.get("color", "#10B981")
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{aqi_val} AQI", self.fonts["h2"], fill="#FFFFFF", anchor="w")
+        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{aqi_val} AQI", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
 
         # Sunrise / sunset formatting
         sun_str = ""
@@ -1599,105 +1751,10 @@ class SkyCastMainWindow(tk.Tk):
 
         step_fade(1)
 
-    def _toggle_preview_mode(self):
-        """F2 preview mode: cycles through 8 diverse atmospheric weather presets."""
-        presets = [
-            {
-                "label": "Rain — Day",
-                "wallpaper": "partly_cloudy.jpg",
-                "anim": "rain",
-                "wmo": 63,
-                "is_day": 1,
-                "temp": 14,
-                "apparent": 13,
-                "cond": "Moderate Rain",
-                "summary": "Persistent rain showers with overcast skies. Keep an umbrella handy."
-            },
-            {
-                "label": "Thunderstorm — Night",
-                "wallpaper": "rain_night.jpg",
-                "anim": "thunderstorm",
-                "wmo": 95,
-                "is_day": 0,
-                "temp": 17,
-                "apparent": 16,
-                "cond": "Thunderstorm",
-                "summary": "Active lightning strikes and heavy downpours throughout the night."
-            },
-            {
-                "label": "Snow — Day",
-                "wallpaper": "snow.jpg",
-                "anim": "snow",
-                "wmo": 73,
-                "is_day": 1,
-                "temp": -2,
-                "apparent": -6,
-                "cond": "Snow Showers",
-                "summary": "Crisp winter flurries with drifting snow and sub-zero temperatures."
-            },
-            {
-                "label": "Clear — Night",
-                "wallpaper": "clear_night.jpg",
-                "anim": "stars",
-                "wmo": 0,
-                "is_day": 0,
-                "temp": 8,
-                "apparent": 7,
-                "cond": "Clear Sky",
-                "summary": "Brilliant starry sky with calm winds and cool nighttime temperatures."
-            },
-            {
-                "label": "Fog — Dawn",
-                "wallpaper": "fog.jpg",
-                "anim": "fog",
-                "wmo": 45,
-                "is_day": 1,
-                "temp": 6,
-                "apparent": 5,
-                "cond": "Dense Fog",
-                "summary": "Misty morning haze with low visibility. Gentle warming expected later."
-            },
-            {
-                "label": "Clear — Day",
-                "wallpaper": "clear_day.jpg",
-                "anim": "clouds",
-                "wmo": 0,
-                "is_day": 1,
-                "temp": 22,
-                "apparent": 21,
-                "cond": "Sunny & Clear",
-                "summary": "Bright sunny afternoon with gentle breeze and perfect outdoor weather."
-            },
-            {
-                "label": "Drizzle — Day",
-                "wallpaper": "cloudy.jpg",
-                "anim": "drizzle",
-                "wmo": 51,
-                "is_day": 1,
-                "temp": 12,
-                "apparent": 11,
-                "cond": "Light Drizzle",
-                "summary": "Fine misty drizzle under cool overcast cloud layers."
-            },
-            {
-                "label": "Overcast — Evening",
-                "wallpaper": "cloudy.jpg",
-                "anim": "clouds",
-                "wmo": 3,
-                "is_day": 0,
-                "temp": 11,
-                "apparent": 10,
-                "cond": "Overcast Evening",
-                "summary": "Dense cloud cover with rich sunset hues and light evening breeze."
-            }
-        ]
-
-        curr_idx = getattr(self, "_preview_idx", 0)
-        p = presets[curr_idx % len(presets)]
-        self._preview_idx = curr_idx + 1
-
+    def apply_preset(self, p: Dict[str, Any]):
+        """Applies an atmospheric weather preset and updates UI immediately."""
         self.is_preview_mode = True
-        self.show_f2_badge(f"🎮 [F2 Preview]: {p['label']} (Press F2 to cycle)")
+        self.show_f2_badge(f"🎮 [Preview]: {p['label']}")
         self.forced_wallpaper = p["wallpaper"]
         self.current_theme = resolve_theme(p["wmo"], is_day=p["is_day"], temp_c=float(p["temp"]))
         self.animator.set_animation(p["anim"])
@@ -1716,6 +1773,261 @@ class SkyCastMainWindow(tk.Tk):
 
         clear_panel_cache()
         self._render_all_panels()
+
+    def _apply_preview_by_label(self, label: str):
+        """Finds preset by label and applies it."""
+        for p in PREVIEW_PRESETS:
+            if p["label"] == label:
+                self.apply_preset(p)
+                return
+
+    def return_to_live_weather(self):
+        """Exits preview mode and returns to live API weather data."""
+        self.is_preview_mode = False
+        self.forced_wallpaper = None
+        self.f2_badge_text = None
+        if self.f2_badge_id:
+            self.after_cancel(self.f2_badge_id)
+            self.f2_badge_id = None
+        clear_panel_cache()
+        self.refresh_weather()
+
+    def _toggle_preview_mode(self):
+        """F2 preview mode: cycles through 8 diverse atmospheric weather presets."""
+        curr_idx = getattr(self, "_preview_idx", 0)
+        p = PREVIEW_PRESETS[curr_idx % len(PREVIEW_PRESETS)]
+        self._preview_idx = curr_idx + 1
+        self.apply_preset(p)
+
+    def _toggle_settings_popover(self):
+        """Toggles the frosted glass Settings popover menu."""
+        self.show_settings_popover = not self.show_settings_popover
+        if self.show_settings_popover:
+            self.show_about_popover = False
+        self._render_all_panels()
+
+    def _draw_settings_popover(self, w: int):
+        """Draws frosted glass settings popover menu with interactive controls."""
+        pop_w = 310
+        pop_h = 360
+        pad = 20
+        bar_w = w - (pad * 2)
+        gear_x = pad + bar_w - 24
+        pop_x = min(gear_x - pop_w + 16, w - pop_w - 16)
+        pop_y = 62
+        self.settings_popover_bbox = (pop_x, pop_y, pop_x + pop_w, pop_y + pop_h)
+
+        glass_photo = render_frosted_glass_panel(
+            bg_image=self.bg_pil_image,
+            x=pop_x, y=pop_y,
+            width=pop_w, height=pop_h,
+            radius=18,
+            blur_radius=22,
+            tint_opacity=0.38,
+            dark_overlay_opacity=0.65,
+            border_opacity=140
+        )
+        self.canvas.create_image(pop_x, pop_y, image=glass_photo, anchor="nw", tags="overlay_glass")
+
+        # Header Title & Close Button
+        self._draw_shadow_text(pop_x + 18, pop_y + 22, "⚙  Settings & Controls", font=self.fonts["h2"], fill="#FFFFFF", anchor="w", tags="overlay")
+        close_tag = "btn_close_settings"
+        self._draw_shadow_text(pop_x + pop_w - 18, pop_y + 22, "✕", font=self.fonts["body_bold"], fill="#94A3B8", anchor="e", tags=("overlay", close_tag))
+        self.canvas.tag_bind(close_tag, "<Button-1>", lambda e: self._toggle_settings_popover())
+        self.canvas.tag_bind(close_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(close_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        # Section 1: Temperature Units
+        sec1_y = pop_y + 54
+        self._draw_shadow_text(pop_x + 18, sec1_y, "TEMPERATURE UNIT", font=self.fonts["small_bold"], fill="#94A3B8", anchor="w", tags="overlay")
+
+        cur_temp = self.units.get("temp", "celsius")
+        btn_c_tag = "pop_btn_c"
+        btn_f_tag = "pop_btn_f"
+
+        b_w = (pop_w - 36 - 10) // 2
+        b_h = 28
+        b_y = sec1_y + 12
+
+        # Draw °C button
+        c_active = (cur_temp == "celsius")
+        c_fill = "#0284C7" if c_active else "#1E293B"
+        c_outline = "#38BDF8" if c_active else "#475569"
+        c_text_col = "#FFFFFF" if c_active else "#CBD5E1"
+        self.canvas.create_rectangle(pop_x + 18, b_y, pop_x + 18 + b_w, b_y + b_h, fill=c_fill, outline=c_outline, width=1.5 if c_active else 1, tags=("overlay", btn_c_tag))
+        self._draw_shadow_text(pop_x + 18 + b_w // 2, b_y + b_h // 2, "°C  Celsius", font=self.fonts["small_bold"], fill=c_text_col, anchor="center", tags=("overlay", btn_c_tag))
+
+        # Draw °F button
+        f_x = pop_x + 18 + b_w + 10
+        f_active = (cur_temp == "fahrenheit")
+        f_fill = "#0284C7" if f_active else "#1E293B"
+        f_outline = "#38BDF8" if f_active else "#475569"
+        f_text_col = "#FFFFFF" if f_active else "#CBD5E1"
+        self.canvas.create_rectangle(f_x, b_y, f_x + b_w, b_y + b_h, fill=f_fill, outline=f_outline, width=1.5 if f_active else 1, tags=("overlay", btn_f_tag))
+        self._draw_shadow_text(f_x + b_w // 2, b_y + b_h // 2, "°F  Fahrenheit", font=self.fonts["small_bold"], fill=f_text_col, anchor="center", tags=("overlay", btn_f_tag))
+
+        self.canvas.tag_bind(btn_c_tag, "<Button-1>", lambda e: self._set_temp_unit("celsius"))
+        self.canvas.tag_bind(btn_c_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(btn_c_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        self.canvas.tag_bind(btn_f_tag, "<Button-1>", lambda e: self._set_temp_unit("fahrenheit"))
+        self.canvas.tag_bind(btn_f_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(btn_f_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        # Section 2: Quick Theme & Weather Preview (F2 Themes)
+        sec2_y = b_y + b_h + 18
+        self._draw_shadow_text(pop_x + 18, sec2_y, "WEATHER THEME PREVIEWS (F2)", font=self.fonts["small_bold"], fill="#94A3B8", anchor="w", tags="overlay")
+
+        themes = [
+            ("☀️ Clear Day", "Clear — Day"),
+            ("🌙 Clear Night", "Clear — Night"),
+            ("🌧️ Rain", "Rain — Day"),
+            ("⛈️ Thunder", "Thunderstorm — Night"),
+            ("❄️ Snow", "Snow — Day"),
+            ("🌫️ Fog", "Fog — Dawn"),
+        ]
+
+        th_cols = 3
+        th_gap = 6
+        th_w = (pop_w - 36 - (th_gap * (th_cols - 1))) // th_cols
+        th_h = 28
+        grid_y = sec2_y + 12
+
+        for i, (btn_lbl, preset_key) in enumerate(themes):
+            col_i = i % th_cols
+            row_i = i // th_cols
+            bx = pop_x + 18 + col_i * (th_w + th_gap)
+            by = grid_y + row_i * (th_h + th_gap)
+            t_tag = f"pop_theme_{i}"
+
+            self.canvas.create_rectangle(bx, by, bx + th_w, by + th_h, fill="#1E293B", outline="#475569", width=1, tags=("overlay", t_tag))
+            self._draw_shadow_text(bx + th_w // 2, by + th_h // 2, btn_lbl, font=self.fonts["small"], fill="#E2E8F0", anchor="center", tags=("overlay", t_tag))
+
+            self.canvas.tag_bind(t_tag, "<Button-1>", lambda e, pkey=preset_key: self._apply_preview_by_label(pkey))
+            self.canvas.tag_bind(t_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+            self.canvas.tag_bind(t_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        # Live Reset Button below theme grid
+        live_y = grid_y + 2 * (th_h + th_gap) + 2
+        live_tag = "pop_live_reset"
+        is_preview = getattr(self, "is_preview_mode", False)
+        live_fill = "#065F46" if not is_preview else "#1E293B"
+        live_outline = "#10B981" if not is_preview else "#64748B"
+        live_txt = "✓ Live Weather Active" if not is_preview else "🔄 Restore Live Weather"
+        self.canvas.create_rectangle(pop_x + 18, live_y, pop_x + pop_w - 18, live_y + 26, fill=live_fill, outline=live_outline, width=1, tags=("overlay", live_tag))
+        self._draw_shadow_text(pop_x + pop_w // 2, live_y + 13, live_txt, font=self.fonts["small_bold"], fill="#FFFFFF" if not is_preview else "#38BDF8", anchor="center", tags=("overlay", live_tag))
+        self.canvas.tag_bind(live_tag, "<Button-1>", lambda e: self.return_to_live_weather())
+        self.canvas.tag_bind(live_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(live_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        # Section 3: Offline Storage Cache
+        sec3_y = live_y + 26 + 18
+        self._draw_shadow_text(pop_x + 18, sec3_y, "STORAGE & CACHE", font=self.fonts["small_bold"], fill="#94A3B8", anchor="w", tags="overlay")
+
+        cache_y = sec3_y + 12
+        cache_tag = "pop_clear_cache"
+        if self.cache_cleared_notice:
+            c_fill = "#065F46"
+            c_text = "✓ Offline Cache Cleared!"
+            c_col = "#34D399"
+        else:
+            c_fill = "#1E293B"
+            c_text = "🗑  Clear Offline Cache"
+            c_col = "#F87171"
+
+        self.canvas.create_rectangle(pop_x + 18, cache_y, pop_x + pop_w - 18, cache_y + 28, fill=c_fill, outline="#475569", width=1, tags=("overlay", cache_tag))
+        self._draw_shadow_text(pop_x + pop_w // 2, cache_y + 14, c_text, font=self.fonts["small_bold"], fill=c_col, anchor="center", tags=("overlay", cache_tag))
+
+        self.canvas.tag_bind(cache_tag, "<Button-1>", lambda e: self._clear_cache())
+        self.canvas.tag_bind(cache_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(cache_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+    def _toggle_about_popover(self):
+        """Toggles the frosted glass About / Info popover."""
+        self.show_about_popover = not self.show_about_popover
+        if self.show_about_popover:
+            self.show_settings_popover = False
+        self._render_all_panels()
+
+    def _draw_about_popover(self, w: int):
+        """Draws the About SkyCast popover menu when clicking the brand logo."""
+        pop_w = 310
+        pop_h = 246
+        pad = 20
+        pop_x = pad + 10
+        pop_y = 62
+        self.about_popover_bbox = (pop_x, pop_y, pop_x + pop_w, pop_y + pop_h)
+
+        glass_photo = render_frosted_glass_panel(
+            bg_image=self.bg_pil_image,
+            x=pop_x, y=pop_y,
+            width=pop_w, height=pop_h,
+            radius=18,
+            blur_radius=22,
+            tint_opacity=0.38,
+            dark_overlay_opacity=0.65,
+            border_opacity=140
+        )
+        self.canvas.create_image(pop_x, pop_y, image=glass_photo, anchor="nw", tags="overlay_glass")
+
+        # Header Title & Close Button
+        logo_sz = 22
+        logo_img = get_weather_icon_image("partly", size=logo_sz)
+        self._icon_refs.append(logo_img)
+        self.canvas.create_image(pop_x + 24, pop_y + 22, image=logo_img, tags="overlay")
+        self._draw_shadow_text(pop_x + 40, pop_y + 22, "About SkyCast", font=self.fonts["h2"], fill="#FFFFFF", anchor="w", tags="overlay")
+
+        close_tag = "btn_close_about"
+        self._draw_shadow_text(pop_x + pop_w - 18, pop_y + 22, "✕", font=self.fonts["body_bold"], fill="#94A3B8", anchor="e", tags=("overlay", close_tag))
+        self.canvas.tag_bind(close_tag, "<Button-1>", lambda e: self._toggle_about_popover())
+        self.canvas.tag_bind(close_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(close_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+
+        # App Info
+        self._draw_shadow_text(pop_x + 18, pop_y + 54, "SkyCast Desktop Edition v2.0", font=self.fonts["body_bold"], fill="#38BDF8", anchor="w", tags="overlay")
+        self._draw_shadow_text(pop_x + 18, pop_y + 74, "Real-time atmospheric weather dashboard", font=self.fonts["small"], fill="#CBD5E1", anchor="w", tags="overlay")
+        self._draw_shadow_text(pop_x + 18, pop_y + 90, "built with Python Tkinter & Pillow.", font=self.fonts["small"], fill="#CBD5E1", anchor="w", tags="overlay")
+
+        # Technical Details
+        c_name = self.current_city.get("name", "Chennai")
+        items = [
+            ("API Source", "Open-Meteo (Zero Secrets)"),
+            ("Rendering", "Frosted Glassmorphism Canvas"),
+            ("Animations", "30 FPS Particle Engine"),
+            ("Home City", f"{c_name}, India"),
+        ]
+
+        dy = pop_y + 116
+        for lbl, val in items:
+            self._draw_shadow_text(pop_x + 18, dy, f"• {lbl}:", font=self.fonts["small_bold"], fill="#94A3B8", anchor="w", tags="overlay")
+            self._draw_shadow_text(pop_x + 104, dy, val, font=self.fonts["small"], fill="#FFFFFF", anchor="w", tags="overlay")
+            dy += 20
+
+        # Shortcut hint
+        hint_y = pop_y + pop_h - 18
+        self._draw_shadow_text(pop_x + pop_w // 2, hint_y, "Tip: Press [F2] or click ⚙ to switch themes", font=self.fonts["small_bold"], fill="#FBBF24", anchor="center", tags="overlay")
+
+    def _set_temp_unit(self, new_temp: str):
+        """Sets temperature unit preference and refreshes weather data."""
+        if self.units.get("temp") != new_temp:
+            self.storage.set_unit("temp", new_temp)
+            self.units = self.storage.get_units()
+            self.load_weather_for_city(self.current_city)
+            self._load_favorites_weather()
+        self._render_all_panels()
+
+    def _clear_cache(self):
+        """Clears local settings offline weather cache and shows visual confirmation."""
+        self.storage.save_cache(None)
+        self.cache_cleared_notice = True
+        self._render_all_panels()
+        self.after(2500, self._reset_cache_notice)
+
+    def _reset_cache_notice(self):
+        """Resets the cache cleared confirmation state."""
+        self.cache_cleared_notice = False
+        if self.show_settings_popover:
+            self._render_all_panels()
 
 def main():
     try:

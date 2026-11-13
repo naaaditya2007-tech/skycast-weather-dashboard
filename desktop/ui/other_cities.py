@@ -142,48 +142,57 @@ class OtherCitiesPanel:
             card_tag = f"other_city_card_{i}"
             self.canvas.create_image(x, cy, image=glass_photo, anchor="nw", tags=("glass_panel", card_tag))
 
-            max_text_w = max(width - 70, 80)
+            max_text_w = max(width - 76, 80)
+            pad_top = max((card_h - 42) // 2, 8)
 
-            # Country label (top left)
+            # Country label (Line 1)
             country_raw = c.get("country", "")
             country_text = truncate_text(fonts["small_bold"], country_raw, max_text_w)
-            self.canvas.create_text(x + 17, cy + 15, text=country_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
-            self.canvas.create_text(x + 16, cy + 14, text=country_text, font=fonts["small_bold"], fill="#CBD5E1", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 17, cy + pad_top + 1, text=country_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + pad_top, text=country_text, font=fonts["small_bold"], fill="#CBD5E1", anchor="w", tags=("ui_element", card_tag))
 
-            # City name (middle left)
+            # City name + Temp (Line 2)
             city_name = c.get("name") or c.get("city", "")
             temp_str = c.get("temp", "")
             display_title = f"{city_name}  {temp_str}".strip() if temp_str else city_name
             city_text = truncate_text(fonts["body_bold"], display_title, max_text_w)
-            self.canvas.create_text(x + 17, cy + 32, text=city_text, font=fonts["body_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
-            self.canvas.create_text(x + 16, cy + 31, text=city_text, font=fonts["body_bold"], fill="#FFFFFF", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 17, cy + pad_top + 18, text=city_text, font=fonts["body_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + pad_top + 17, text=city_text, font=fonts["body_bold"], fill="#FFFFFF", anchor="w", tags=("ui_element", card_tag))
 
-            # Condition text (bottom left)
+            # Condition text (Line 3)
             cond_raw = c.get("condition", "Clear")
             cond_text = truncate_text(fonts["small_bold"], cond_raw, max_text_w)
-            self.canvas.create_text(x + 17, cy + card_h - 12, text=cond_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
-            self.canvas.create_text(x + 16, cy + card_h - 13, text=cond_text, font=fonts["small_bold"], fill="#E2E8F0", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 17, cy + pad_top + 35, text=cond_text, font=fonts["small_bold"], fill="#090D16", anchor="w", tags=("ui_element", card_tag))
+            self.canvas.create_text(x + 16, cy + pad_top + 34, text=cond_text, font=fonts["small_bold"], fill="#38BDF8", anchor="w", tags=("ui_element", card_tag))
 
             # Weather Icon on right
             icon_kind = c.get("icon") or cond_raw
-            icon_size = min(max(card_h - 18, 28), 38)
+            icon_size = min(max(card_h - 18, 28), 36)
             icon_img = get_weather_icon_image(str(icon_kind), size=icon_size)
             self._icon_refs.append(icon_img)
 
             self.canvas.create_image(
-                x + width - 16 - icon_size // 2, cy + card_h // 2,
+                x + width - 24 - icon_size // 2, cy + card_h // 2,
                 image=icon_img,
                 tags=("ui_element", card_tag)
             )
 
-            # Remove '✕' button on top-right of card
+            # High-contrast Remove '✕' button on top-right of card with drop shadow
             remove_tag = f"remove_fav_{i}"
             self.canvas.create_text(
-                x + width - 12, cy + 14,
+                x + width - 13, cy + 13,
                 text="✕",
-                font=("Segoe UI", 9, "bold"),
-                fill="#94A3B8",
-                anchor="e",
+                font=("Segoe UI", 10, "bold"),
+                fill="#090D16",
+                anchor="center",
+                tags=("ui_element", remove_tag)
+            )
+            self.canvas.create_text(
+                x + width - 14, cy + 12,
+                text="✕",
+                font=("Segoe UI", 10, "bold"),
+                fill="#CBD5E1",
+                anchor="center",
                 tags=("ui_element", remove_tag)
             )
 
