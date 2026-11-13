@@ -18,7 +18,7 @@ A premium, atmospheric desktop weather intelligence application developed in **P
 
 ## 🚀 Core Technical Highlights
 
-- **Compulsory Tkinter GUI**: Built from scratch using standard Python `tkinter` and `Pillow`. Completely standalone with zero external GUI framework bloat (no PyQt, no Electron, no Kivy).
+- **Compulsory Tkinter GUI**: Built from scratch using standard Python `tkinter` and `Pillow`. Completely standalone with zero external GUI framework bloat (no PyQt, no Electron, no Kivy). Employs standard native `tk.Button`, `tk.Label`, `tk.Entry`, `tk.Frame`, and `tk.Toplevel` dialogs embedded via `canvas.create_window()`.
 - **Zero API Keys Required**: Integrates directly with [Open-Meteo](https://open-meteo.com) for real-time weather, 16-day daily forecasts, 24-hour timelines, geocoding search, and European air quality metrics (AQI). No secrets or credentials needed.
 - **Custom Canvas Glassmorphism**: Frosted glass panels generated with dynamic Pillow Gaussian blurs, soft white translucency tints, dark contrast backing, and thin borders. Cached by geometry to re-render only on window resizing.
 - **30 FPS Non-Blocking Particle Animation Engine**: Smooth canvas particle rendering that runs strictly behind glass panels and above the atmospheric wallpaper:

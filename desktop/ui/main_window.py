@@ -232,8 +232,9 @@ class SkyCastMainWindow(tk.Tk):
         self.bind("<F2>", lambda e: self._toggle_preview_mode())
         self.canvas.bind("<Button-1>", self._on_canvas_click)
 
-        # Build embedded search entry widget
+        # Build embedded search entry widget & standard native widgets
         self._build_search_widget()
+        self._init_native_widgets()
 
         # Load initial live weather
         self.load_weather_for_city(self.current_city)
@@ -304,6 +305,238 @@ class SkyCastMainWindow(tk.Tk):
         self.search_entry.bind("<FocusOut>", self._on_search_focus_out)
         self._placeholder_active = True
         self.search_var.set("Search City...")
+
+    def _init_native_widgets(self):
+        """MANDATORY: Standard native tk.Label and tk.Button widgets embedded via canvas.create_window."""
+        btn_style = {
+            "bd": 0,
+            "relief": "flat",
+            "highlightthickness": 0,
+            "bg": "#3b4d66",
+            "fg": "#ffffff",
+            "activebackground": "#526b8a",
+            "activeforeground": "#ffffff",
+            "cursor": "hand2"
+        }
+
+        # 1. Header Labels (tk.Label)
+        self.lbl_brand_title = tk.Label(
+            self.canvas,
+            text="SkyCast",
+            font=self.fonts["logo"],
+            bg="#243447",
+            fg="#FFFFFF",
+            bd=0,
+            relief="flat",
+            highlightthickness=0,
+            cursor="hand2"
+        )
+        self.lbl_brand_title.bind("<Button-1>", lambda e: self._toggle_about_popover())
+
+        self.lbl_updated_status = tk.Label(
+            self.canvas,
+            text="Updated just now",
+            font=self.fonts["small_bold"],
+            bg="#243447",
+            fg="#CBD5E1",
+            bd=0,
+            relief="flat",
+            highlightthickness=0
+        )
+
+        # 2. Header Buttons (tk.Button)
+        self.btn_refresh = tk.Button(
+            self.canvas,
+            text="⟳",
+            font=("Segoe UI", 12, "bold"),
+            command=self.refresh_weather,
+            **btn_style
+        )
+
+        t_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
+        self.btn_unit_toggle = tk.Button(
+            self.canvas,
+            text=f"[{t_sym}]",
+            font=self.fonts["body_bold"],
+            command=self._toggle_units,
+            **btn_style
+        )
+
+        self.btn_settings = tk.Button(
+            self.canvas,
+            text="⚙",
+            font=("Segoe UI", 13, "bold"),
+            command=self.open_settings_modal,
+            **btn_style
+        )
+
+        # 3. Forecast Tab Buttons (tk.Button)
+        self.btn_tab_today = tk.Button(
+            self.canvas,
+            text="Today",
+            font=self.fonts["small_bold"],
+            command=lambda: self._switch_forecast_tab("Today"),
+            **btn_style
+        )
+        self.btn_tab_week = tk.Button(
+            self.canvas,
+            text="Week",
+            font=self.fonts["small_bold"],
+            command=lambda: self._switch_forecast_tab("Week"),
+            **btn_style
+        )
+        self.btn_tab_16days = tk.Button(
+            self.canvas,
+            text="16 Days",
+            font=self.fonts["small_bold"],
+            command=lambda: self._switch_forecast_tab("16 Days"),
+            **btn_style
+        )
+
+    def open_settings_modal(self):
+        """MANDATORY: Open clean tk.Toplevel settings dialog built with standard tk.Frame, tk.Label, and tk.Button widgets."""
+        self.show_settings_popover = True
+        modal = tk.Toplevel(self)
+        modal.title("SkyCast — Settings & Controls")
+        modal.geometry("380x490")
+        modal.resizable(False, False)
+        modal.configure(bg="#0f172a")
+        modal.transient(self)
+        modal.grab_set()
+
+        try:
+            mx = self.winfo_x() + (self.winfo_width() - 380) // 2
+            my = self.winfo_y() + (self.winfo_height() - 490) // 2
+            modal.geometry(f"+{max(mx, 50)}+{max(my, 50)}")
+        except Exception:
+            pass
+
+        btn_style = {
+            "bd": 0,
+            "relief": "flat",
+            "highlightthickness": 0,
+            "bg": "#334155",
+            "fg": "#ffffff",
+            "activebackground": "#475569",
+            "activeforeground": "#ffffff",
+            "cursor": "hand2"
+        }
+
+        # Header Frame
+        hdr_frame = tk.Frame(modal, bg="#1e293b", padx=16, pady=12)
+        hdr_frame.pack(fill="x")
+        lbl_title = tk.Label(hdr_frame, text="⚙ Settings & Controls", font=("Segoe UI", 13, "bold"), bg="#1e293b", fg="#38BDF8")
+        lbl_title.pack(side="left")
+
+        def close_modal():
+            self.show_settings_popover = False
+            modal.destroy()
+            self._render_all_panels()
+
+        modal.protocol("WM_DELETE_WINDOW", close_modal)
+        btn_close = tk.Button(hdr_frame, text="✕", font=("Segoe UI", 11, "bold"), command=close_modal, **btn_style)
+        btn_close.pack(side="right")
+
+        content = tk.Frame(modal, bg="#0f172a", padx=18, pady=12)
+        content.pack(fill="both", expand=True)
+
+        # 1. Temperature Units
+        lbl_u = tk.Label(content, text="TEMPERATURE UNITS", font=("Segoe UI", 9, "bold"), bg="#0f172a", fg="#94A3B8")
+        lbl_u.pack(anchor="w", pady=(0, 6))
+
+        u_frame = tk.Frame(content, bg="#0f172a")
+        u_frame.pack(fill="x", pady=(0, 12))
+
+        def set_unit(unit):
+            self._set_temp_unit(unit)
+            update_unit_buttons()
+
+        btn_c = tk.Button(u_frame, text="°C  Celsius", font=("Segoe UI", 10, "bold"), command=lambda: set_unit("celsius"), **btn_style)
+        btn_c.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        btn_f = tk.Button(u_frame, text="°F  Fahrenheit", font=("Segoe UI", 10, "bold"), command=lambda: set_unit("fahrenheit"), **btn_style)
+        btn_f.pack(side="right", expand=True, fill="x", padx=(4, 0))
+
+        def update_unit_buttons():
+            cur = self.units.get("temp", "celsius")
+            btn_c.config(bg="#0284c7" if cur == "celsius" else "#334155")
+            btn_f.config(bg="#0284c7" if cur == "fahrenheit" else "#334155")
+        update_unit_buttons()
+
+        # 2. Atmospheric Weather Theme Previews (F2)
+        lbl_p = tk.Label(content, text="ATMOSPHERIC PREVIEW MODES (F2)", font=("Segoe UI", 9, "bold"), bg="#0f172a", fg="#94A3B8")
+        lbl_p.pack(anchor="w", pady=(4, 6))
+
+        p_frame = tk.Frame(content, bg="#0f172a")
+        p_frame.pack(fill="x", pady=(0, 8))
+
+        presets_list = [
+            ("☀️ Clear Day", "Clear — Day"),
+            ("🌙 Clear Night", "Clear — Night"),
+            ("🌧️ Rain", "Rain — Day"),
+            ("⛈️ Thunder", "Thunderstorm — Night"),
+            ("❄️ Snow", "Snow — Day"),
+            ("🌫️ Fog", "Fog — Dawn"),
+            ("⛅ Overcast", "Overcast — Evening"),
+            ("🌧️ Drizzle", "Drizzle — Day"),
+        ]
+
+        for i, (txt, key) in enumerate(presets_list):
+            row = i // 2
+            col = i % 2
+            p_btn = tk.Button(
+                p_frame,
+                text=txt,
+                font=("Segoe UI", 9),
+                command=lambda k=key: self._apply_preview_by_label(k),
+                **btn_style
+            )
+            p_btn.grid(row=row, column=col, sticky="ew", padx=3, pady=3)
+        p_frame.columnconfigure(0, weight=1)
+        p_frame.columnconfigure(1, weight=1)
+
+        # Restore Live Weather Button
+        btn_live = tk.Button(
+            content,
+            text="🔄 Restore Live Weather",
+            font=("Segoe UI", 9, "bold"),
+            bg="#065f46",
+            fg="#ffffff",
+            activebackground="#047857",
+            activeforeground="#ffffff",
+            bd=0, relief="flat", highlightthickness=0, cursor="hand2",
+            command=lambda: [self.return_to_live_weather(), close_modal()]
+        )
+        btn_live.pack(fill="x", pady=(4, 12))
+
+        # 3. Storage & Favorites
+        lbl_s = tk.Label(content, text="DATA & CACHE", font=("Segoe UI", 9, "bold"), bg="#0f172a", fg="#94A3B8")
+        lbl_s.pack(anchor="w", pady=(2, 6))
+
+        def clear_cache_click():
+            self._clear_cache()
+            btn_cache.config(text="✓ Offline Cache Cleared!", bg="#065f46")
+
+        btn_cache = tk.Button(
+            content,
+            text="🗑 Clear Offline Cache",
+            font=("Segoe UI", 9),
+            command=clear_cache_click,
+            **btn_style
+        )
+        btn_cache.pack(fill="x", pady=(0, 6))
+
+        def reset_favs_click():
+            self._reset_favorites_to_defaults()
+            btn_fav.config(text="✓ Indian Favourites Restored!", bg="#065f46")
+
+        btn_fav = tk.Button(
+            content,
+            text="🔄 Reset Favourites to Indian Metros",
+            font=("Segoe UI", 9),
+            command=reset_favs_click,
+            **btn_style
+        )
+        btn_fav.pack(fill="x", pady=(0, 8))
 
     def _on_search_focus_in(self, event):
         if self._placeholder_active:
@@ -795,14 +1028,14 @@ class SkyCastMainWindow(tk.Tk):
         )
         self.canvas.create_image(pad, 14, image=bar_photo, anchor="nw", tags="glass_panel")
 
-        # Clean Custom Vector Weather Logo (Sun behind Cloud) + Brand Title
+        # Clean Custom Vector Weather Logo (Sun behind Cloud) + Brand Title (tk.Label)
         logo_sz = 26
         logo_img = get_weather_icon_image("partly", size=logo_sz)
         self._icon_refs.append(logo_img)
         logo_tag = "btn_brand_logo"
         self._last_logo_x = pad + 20
         self.canvas.create_image(pad + 20, 38, image=logo_img, tags=("ui_element", logo_tag))
-        self._draw_shadow_text(pad + 40, 38, "SkyCast", font=self.fonts["logo"], fill="#FFFFFF", anchor="w", tags=("ui_element", logo_tag))
+        self.canvas.create_window(pad + 38, 38, window=self.lbl_brand_title, anchor="w", tags="ui_element")
 
         self.canvas.tag_bind(logo_tag, "<Button-1>", lambda e: self._toggle_about_popover())
         self.canvas.tag_bind(logo_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
@@ -833,29 +1066,22 @@ class SkyCastMainWindow(tk.Tk):
         entry_w = pill_w - 42
         self.canvas.create_window(pill_x + 32, pill_y + 6, window=self.search_entry, anchor="nw", width=entry_w, height=20, tags="ui_element")
 
-        # Settings Icon (Gear) with popover toggle
-        gear_x = pad + bar_w - 24
+        # Settings Icon (tk.Button)
+        gear_x = pad + bar_w - 20
         self._last_gear_x = gear_x
-        gear_tag = "btn_settings_gear"
-        gear_fill = "#38BDF8" if self.show_settings_popover else "#FFFFFF"
-        self._draw_shadow_text(gear_x, 38, "⚙", font=("Segoe UI", 16), fill=gear_fill, anchor="e", tags=("ui_element", gear_tag))
+        self.canvas.create_window(gear_x - 14, 38, window=self.btn_settings, anchor="center", width=28, height=26, tags="ui_element")
 
-        self.canvas.tag_bind(gear_tag, "<Button-1>", lambda e: self._toggle_settings_popover())
-        self.canvas.tag_bind(gear_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-        self.canvas.tag_bind(gear_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
-
-        # Unit Toggle Button (°C / °F)
-        unit_x = gear_x - 38
+        # Unit Toggle Button (tk.Button)
+        unit_x = gear_x - 42
         t_sym = "°F" if self.units.get("temp") == "fahrenheit" else "°C"
-        unit_tag = "btn_unit_toggle"
-        self._draw_shadow_text(unit_x, 38, f"[{t_sym}]", font=self.fonts["body_bold"], fill="#38BDF8", anchor="e", tags=("ui_element", unit_tag))
+        self.btn_unit_toggle.config(text=f"[{t_sym}]")
+        self.canvas.create_window(unit_x - 20, 38, window=self.btn_unit_toggle, anchor="center", width=42, height=26, tags="ui_element")
 
-        # Interactive Refresh Button [🔄]
-        refresh_x = unit_x - 42
-        refresh_tag = "btn_refresh"
-        self._draw_shadow_text(refresh_x, 38, "🔄", font=("Segoe UI", 13), fill="#38BDF8", anchor="e", tags=("ui_element", refresh_tag))
+        # Interactive Refresh Button (tk.Button)
+        refresh_x = unit_x - 44
+        self.canvas.create_window(refresh_x - 14, 38, window=self.btn_refresh, anchor="center", width=28, height=26, tags="ui_element")
 
-        # "Last updated X min ago" label
+        # "Last updated X min ago" label (tk.Label)
         elapsed_mins = int((time.time() - self.last_updated_time) / 60)
         if elapsed_mins <= 0:
             upd_str = "Updated just now"
@@ -864,16 +1090,9 @@ class SkyCastMainWindow(tk.Tk):
         else:
             upd_str = f"Updated {elapsed_mins}m ago"
 
-        upd_x = refresh_x - 30
-        self._draw_shadow_text(upd_x, 38, upd_str, font=self.fonts["small_bold"], fill="#CBD5E1", anchor="e")
-
-        self.canvas.tag_bind(unit_tag, "<Button-1>", lambda e: self._toggle_units())
-        self.canvas.tag_bind(unit_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-        self.canvas.tag_bind(unit_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
-
-        self.canvas.tag_bind(refresh_tag, "<Button-1>", lambda e: self.refresh_weather())
-        self.canvas.tag_bind(refresh_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-        self.canvas.tag_bind(refresh_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+        upd_x = refresh_x - 32
+        self.lbl_updated_status.config(text=upd_str)
+        self.canvas.create_window(upd_x, 38, window=self.lbl_updated_status, anchor="e", tags="ui_element")
 
     def _draw_search_dropdown(self, w: int):
         """Floating autocomplete suggestions card showing City, Region, Country."""
@@ -1110,53 +1329,25 @@ class SkyCastMainWindow(tk.Tk):
         )
         self.canvas.create_image(x, y, image=glass_photo, anchor="nw", tags="glass_panel")
 
-        # Tabs Header: Today | Week | 16 Days
+        # Tabs Header: Today | Week | 16 Days (Native tk.Button Widgets)
         tab_y = y + (12 if is_compact else 16)
         tab_x = x + (12 if is_compact else 18)
-        tabs = [
-            ("Today", 52 if is_compact else 65),
-            ("Week", 48 if is_compact else 60),
-            ("16 Days", 60 if is_compact else 75)
+        tabs_map = [
+            ("Today", self.btn_tab_today, 52 if is_compact else 65),
+            ("Week", self.btn_tab_week, 48 if is_compact else 60),
+            ("16 Days", self.btn_tab_16days, 60 if is_compact else 75)
         ]
 
         cur_x = tab_x
         tab_gap = 6 if is_compact else 10
-        for name, tw in tabs:
+        btn_h = 24 if is_compact else 28
+        for name, btn_widget, tw in tabs_map:
             is_active = (name == self.active_tab)
-            t_tag = f"tab_btn_{name.replace(' ', '_')}"
             if is_active:
-                tab_pill = render_frosted_glass_panel(
-                    bg_image=self.bg_pil_image,
-                    x=cur_x, y=tab_y,
-                    width=tw, height=24 if is_compact else 28,
-                    radius=12 if is_compact else 14,
-                    blur_radius=10,
-                    tint_opacity=0.40,
-                    dark_overlay_opacity=0.30,
-                    border_opacity=130
-                )
-                self.canvas.create_image(cur_x, tab_y, image=tab_pill, anchor="nw", tags="glass_panel")
-                self._draw_shadow_text(
-                    cur_x + tw // 2, tab_y + (12 if is_compact else 14),
-                    name,
-                    self.fonts["small_bold"],
-                    fill="#FFFFFF",
-                    anchor="center",
-                    tags=("ui_element", t_tag)
-                )
+                btn_widget.config(bg="#0284c7", fg="#ffffff", activebackground="#0369a1")
             else:
-                self._draw_shadow_text(
-                    cur_x + tw // 2, tab_y + (12 if is_compact else 14),
-                    name,
-                    self.fonts["small_bold"],
-                    fill="#CBD5E1",
-                    anchor="center",
-                    tags=("ui_element", t_tag)
-                )
-
-            self.canvas.tag_bind(t_tag, "<Button-1>", lambda e, tname=name: self._switch_forecast_tab(tname))
-            self.canvas.tag_bind(t_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-            self.canvas.tag_bind(t_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+                btn_widget.config(bg="#3b4d66", fg="#cbd5e1", activebackground="#526b8a")
+            self.canvas.create_window(cur_x, tab_y, window=btn_widget, anchor="nw", width=tw, height=btn_h, tags="ui_element")
             cur_x += tw + tab_gap
 
         # Sub-content depending on active tab

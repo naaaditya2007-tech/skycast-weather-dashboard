@@ -46,6 +46,38 @@ class OtherCitiesPanel:
         self.on_add_current_city = on_add_current_city
         self._icon_refs: List[Any] = []
 
+        btn_style = {
+            "bd": 0,
+            "relief": "flat",
+            "highlightthickness": 0,
+            "bg": "#3b4d66",
+            "fg": "#38BDF8",
+            "activebackground": "#526b8a",
+            "activeforeground": "#ffffff",
+            "cursor": "hand2"
+        }
+        self.lbl_header = tk.Label(
+            self.canvas,
+            text="Other Cities",
+            font=("Segoe UI", 13, "bold"),
+            bg="#1e293b",
+            fg="#FFFFFF",
+            bd=0,
+            relief="flat",
+            highlightthickness=0
+        )
+        self.btn_fav = tk.Button(
+            self.canvas,
+            text="+ Add Fav",
+            font=("Segoe UI", 9, "bold"),
+            command=self._on_fav_click,
+            **btn_style
+        )
+
+    def _on_fav_click(self):
+        if self.on_add_current_city:
+            self.on_add_current_city()
+
     def draw(self, bg_image, x: int, y: int, width: int, height: int,
              cities_data: List[Dict[str, Any]],
              theme: Dict[str, Any],
@@ -54,31 +86,28 @@ class OtherCitiesPanel:
         """Render the 'Other Cities' right-column stacked cards with live data."""
         self._icon_refs.clear()
 
-        # Section Header
-        self.canvas.create_text(
+        # Section Header (tk.Label)
+        self.canvas.create_window(
             x + 5, y + 14,
-            text="Other Cities",
-            font=fonts["h2"],
-            fill="#FFFFFF",
+            window=self.lbl_header,
             anchor="w",
             tags="ui_element"
         )
 
-        # Header Action Button: Add/Favorite Toggle
+        # Header Action Button: Add/Favorite Toggle (tk.Button)
         btn_text = "★ Saved" if is_current_favorite else "+ Add Fav"
-        btn_tag = "btn_add_fav"
-        self.canvas.create_text(
-            x + width - 6, y + 14,
+        self.btn_fav.config(
             text=btn_text,
-            font=fonts["small_bold"],
-            fill="#FBBF24" if is_current_favorite else "#38BDF8",
-            anchor="e",
-            tags=("ui_element", btn_tag)
+            fg="#FBBF24" if is_current_favorite else "#38BDF8",
+            bg="#2a374a" if is_current_favorite else "#3b4d66"
         )
-        if self.on_add_current_city:
-            self.canvas.tag_bind(btn_tag, "<Button-1>", lambda e: self.on_add_current_city())
-            self.canvas.tag_bind(btn_tag, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-            self.canvas.tag_bind(btn_tag, "<Leave>", lambda e: self.canvas.config(cursor=""))
+        self.canvas.create_window(
+            x + width - 6, y + 14,
+            window=self.btn_fav,
+            anchor="e",
+            height=26,
+            tags="ui_element"
+        )
 
         # Empty State
         if not cities_data:
