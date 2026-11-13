@@ -1,23 +1,10 @@
+
+
 """
-SkyCast Desktop UI — Main Application Window (Stage 4 Complete)
---------------------------------------------------------------
-Full real-time Open-Meteo weather integration:
-- Search with 300 ms debounced autocomplete (city, region, country)
-- Live current weather card with real WMO mapping, local time, and dynamic summary
-- No text cutoffs: condition wraps/shrinks font; only long city names truncate with '...'
-- Bottom padding inside main card so summary never touches the edge
-- 24-hour temperature trend line chart on canvas with min/max annotations
-- Today (hourly scrollable) / Week (7-day) / 16 Days (extended) tabs with rain chance
-- Overview grid with 6 rich glass tiles:
-  1. Humidity (large droplet + dew point)
-  2. UV Index (vertical gradient thermometer bar + category)
-  3. Visibility (haze icon + distance status)
-  4. Wind (compass + speed & direction)
-  5. Pressure (barometer dial + hPa/inHg)
-  6. Air Quality & Sun (AQI rating + sunrise/sunset)
-- Other Cities right column using saved favorites with [+ Add Fav] and [✕ Remove]
-- Thread-safe background network requests with safe UI dispatch
-- Loading state spinner & friendly error notification banner
+SkyCast Desktop UI — Main Application Window
+--------------------------------------------
+Real-time Open-Meteo weather intelligence desktop dashboard built with standard
+Tkinter (tk.Tk, tk.Canvas, tk.Button, tk.Label, tk.Entry, tk.Toplevel) and Pillow.
 """
 
 import sys
@@ -1817,12 +1804,25 @@ class SkyCastMainWindow(tk.Tk):
         self.canvas.create_image(tx, ty, image=photo, anchor="nw", tags="glass_panel")
         self._draw_shadow_text(tx + 14, ty + 15, "Pressure", self.fonts["body_bold"], fill="#FFFFFF", anchor="w")
 
-        baro_sz = min(max(int(th * 0.44), 36), 56)
+        # Refined gauge icon size & right positioning to ensure ample horizontal breathing room
+        baro_sz = 32 if is_compact else 38
         baro_img = get_weather_icon_image("barometer", size=baro_sz)
         self._icon_refs.append(baro_img)
-        self.canvas.create_image(tx + tw - 16 - baro_sz // 2, ty + th // 2, image=baro_img, tags="ui_element")
+        baro_cx = tx + tw - 12 - baro_sz // 2
+        baro_left = baro_cx - baro_sz // 2
+        self.canvas.create_image(baro_cx, ty + th // 2, image=baro_img, tags="ui_element")
 
-        self._draw_shadow_text(tx + 14, ty + th // 2 + 6, f"{press_val} hPa", self.fonts["tile_val"], fill="#FFFFFF", anchor="w")
+        # Guaranteed spacing: ensure four-digit pressure text (e.g. 1015, 1020 hPa) has ample breathing room
+        press_str = f"{press_val} hPa"
+        press_font = self.fonts["tile_val"]
+        text_x = tx + 14
+        min_gap = 14  # minimum horizontal gap in pixels before gauge icon
+        avail_text_w = baro_left - text_x - min_gap
+
+        if press_font.measure(press_str) > avail_text_w:
+            press_font = tkfont.Font(family="Segoe UI", size=20 if is_compact else 22, weight="bold")
+
+        self._draw_shadow_text(text_x, ty + th // 2 + 6, press_str, press_font, fill="#FFFFFF", anchor="w")
         self._draw_shadow_text(tx + 14, ty + th - 13, f"Cloud cover: {clouds}%", self.fonts["small_bold"], fill="#38BDF8", anchor="w")
 
     def _draw_overview_tile_aqi(self, tx, ty, tw, th, aqi_val, pm25_val, sunrise_iso, sunset_iso, is_compact):
