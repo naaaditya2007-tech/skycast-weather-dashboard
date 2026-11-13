@@ -1146,6 +1146,12 @@ class SkyCastMainWindow(tk.Tk):
 
             truncated = truncate_text(self.fonts["small_bold"], display_str, drop_w - 32)
 
+            # Clickable row hitbox spanning full suggestion width
+            self.canvas.create_rectangle(
+                drop_x + 6, sy, drop_x + drop_w - 6, sy + item_h,
+                fill="", outline="", tags=("overlay", tag)
+            )
+
             self.canvas.create_text(
                 drop_x + 14, sy + item_h // 2,
                 text=f"📍 {truncated}",
@@ -1361,13 +1367,24 @@ class SkyCastMainWindow(tk.Tk):
         glass_btn_bg = "#2c3a4f" if is_night else "#4a6583"
         glass_btn_hover = "#3e526e" if is_night else "#5d7d9f"
 
+        # Check if the floating search dropdown is active and covers the tabs area
+        dropdown_active = bool(self.show_search_dropdown and self.search_suggestions)
+
         for name, btn_widget, tw in tabs_map:
             is_active = (name == self.active_tab)
-            if is_active:
-                btn_widget.config(bg="#0284c7", fg="#ffffff", activebackground="#0369a1")
+            if dropdown_active:
+                # When search dropdown is open, render as canvas elements beneath the overlay
+                # so native Tkinter HWND button widgets do not poke through the floating dropdown
+                fill_bg = "#0284c7" if is_active else glass_btn_bg
+                fg_col = "#ffffff" if is_active else "#cbd5e1"
+                self.canvas.create_rectangle(cur_x, tab_y, cur_x + tw, tab_y + btn_h, fill=fill_bg, outline="", tags="glass_panel")
+                self.canvas.create_text(cur_x + tw // 2, tab_y + btn_h // 2, text=name, font=self.fonts["small_bold"], fill=fg_col, anchor="center", tags="glass_panel")
             else:
-                btn_widget.config(bg=glass_btn_bg, fg="#cbd5e1", activebackground=glass_btn_hover)
-            self.canvas.create_window(cur_x, tab_y, window=btn_widget, anchor="nw", width=tw, height=btn_h, tags="ui_element")
+                if is_active:
+                    btn_widget.config(bg="#0284c7", fg="#ffffff", activebackground="#0369a1")
+                else:
+                    btn_widget.config(bg=glass_btn_bg, fg="#cbd5e1", activebackground=glass_btn_hover)
+                self.canvas.create_window(cur_x, tab_y, window=btn_widget, anchor="nw", width=tw, height=btn_h, tags="ui_element")
             cur_x += tw + tab_gap
 
         # Sub-content depending on active tab
