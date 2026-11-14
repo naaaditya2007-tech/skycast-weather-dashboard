@@ -62,6 +62,107 @@ export function getUvCategory(uv) {
   return { label: "Extreme", color: "#a855f7" };
 }
 
+export function getAtmosphericConfig(theme = 'clear', isDay = 1, wmoCode = 0) {
+  if (!isDay) {
+    if (theme === 'rain' || theme === 'thunderstorm') {
+      return {
+        wallpaper: '/backgrounds/rain_night.jpg',
+        skyGradient: 'from-slate-950 via-indigo-950/60 to-black',
+        ambientGlow1: 'bg-indigo-600/20',
+        ambientGlow2: 'bg-purple-600/20',
+        tint: 'bg-slate-950/70',
+        label: theme === 'thunderstorm' ? 'Thunderstorm Night' : 'Rainy Night'
+      };
+    }
+    if (theme === 'snow') {
+      return {
+        wallpaper: '/backgrounds/snow.jpg',
+        skyGradient: 'from-slate-950 via-sky-950/50 to-black',
+        ambientGlow1: 'bg-sky-500/20',
+        ambientGlow2: 'bg-indigo-500/20',
+        tint: 'bg-slate-950/75',
+        label: 'Snow Night'
+      };
+    }
+    return {
+      wallpaper: '/backgrounds/clear_night.jpg',
+      skyGradient: 'from-[#030712] via-[#090d16] to-[#02040a]',
+      ambientGlow1: 'bg-indigo-500/20',
+      ambientGlow2: 'bg-violet-600/20',
+      tint: 'bg-slate-950/65',
+      label: 'Clear Night'
+    };
+  }
+
+  switch (theme) {
+    case 'thunderstorm':
+      return {
+        wallpaper: '/backgrounds/rain_night.jpg',
+        skyGradient: 'from-purple-950/80 via-slate-950/90 to-black',
+        ambientGlow1: 'bg-violet-500/25',
+        ambientGlow2: 'bg-fuchsia-600/20',
+        tint: 'bg-slate-950/70',
+        label: 'Thunderstorm'
+      };
+    case 'rain':
+      return {
+        wallpaper: '/backgrounds/rain_night.jpg',
+        skyGradient: 'from-slate-900/90 via-sky-950/80 to-slate-950',
+        ambientGlow1: 'bg-cyan-500/20',
+        ambientGlow2: 'bg-blue-600/20',
+        tint: 'bg-slate-950/65',
+        label: 'Rain'
+      };
+    case 'snow':
+      return {
+        wallpaper: '/backgrounds/snow.jpg',
+        skyGradient: 'from-slate-800/80 via-sky-950/70 to-slate-950',
+        ambientGlow1: 'bg-sky-300/20',
+        ambientGlow2: 'bg-cyan-400/20',
+        tint: 'bg-slate-950/60',
+        label: 'Snow'
+      };
+    case 'fog':
+      return {
+        wallpaper: '/backgrounds/fog.jpg',
+        skyGradient: 'from-slate-800/85 via-zinc-900/85 to-slate-950',
+        ambientGlow1: 'bg-slate-400/20',
+        ambientGlow2: 'bg-zinc-500/20',
+        tint: 'bg-slate-950/65',
+        label: 'Fog'
+      };
+    case 'cloudy':
+      if (wmoCode === 3) {
+        return {
+          wallpaper: '/backgrounds/cloudy.jpg',
+          skyGradient: 'from-slate-800/85 via-slate-900/85 to-slate-950',
+          ambientGlow1: 'bg-sky-600/20',
+          ambientGlow2: 'bg-slate-500/20',
+          tint: 'bg-slate-950/60',
+          label: 'Overcast'
+        };
+      }
+      return {
+        wallpaper: '/backgrounds/partly_cloudy.jpg',
+        skyGradient: 'from-sky-900/70 via-slate-900/80 to-slate-950',
+        ambientGlow1: 'bg-sky-400/25',
+        ambientGlow2: 'bg-indigo-500/20',
+        tint: 'bg-slate-950/55',
+        label: 'Partly Cloudy'
+      };
+    case 'clear':
+    default:
+      return {
+        wallpaper: '/backgrounds/clear_day.jpg',
+        skyGradient: 'from-sky-800/70 via-slate-900/80 to-slate-950',
+        ambientGlow1: 'bg-sky-400/30',
+        ambientGlow2: 'bg-amber-400/25',
+        tint: 'bg-slate-950/50',
+        label: 'Clear Day'
+      };
+  }
+}
+
 export const DEFAULT_INDIAN_FAVORITES = [
   { name: "Bengaluru", country: "India", admin1: "Karnataka", latitude: 12.9716, longitude: 77.5946 },
   { name: "Mumbai", country: "India", admin1: "Maharashtra", latitude: 19.0760, longitude: 72.8777 },

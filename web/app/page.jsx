@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import BackgroundAtmosphere from '../components/BackgroundAtmosphere';
 import WeatherCanvas from '../components/WeatherCanvas';
 import HeroCard from '../components/HeroCard';
 import ForecastCard from '../components/ForecastCard';
@@ -207,14 +208,11 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden p-3 sm:p-6 lg:p-8">
+      {/* Dynamic Weather-Adaptive Background Wallpaper & Sky Gradient */}
+      <BackgroundAtmosphere weatherTheme={activeWeatherTheme} isDay={activeIsDay} wmoCode={currentWmo} />
+
       {/* 60 FPS HTML5 Canvas Atmospheric Particle Engine */}
       <WeatherCanvas weatherTheme={activeWeatherTheme} isDay={activeIsDay} />
-
-      {/* Atmospheric Radial Backlighting */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-sky-500/10 rounded-full blur-[128px]" />
-        <div className="absolute bottom-1/3 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-[128px]" />
-      </div>
 
       <div className="relative z-10 max-w-7xl mx-auto w-full flex flex-col gap-5 sm:gap-6">
         {/* Top Navigation Bar */}
