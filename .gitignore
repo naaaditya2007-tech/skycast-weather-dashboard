@@ -39,3 +39,9 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# Personal Study Guides & Reference Reports (Kept locally for study, not tracked on GitHub)
+*.pdf
+*Viva_Guide.html
+output_app_window.png
+output_ide_composite.png
