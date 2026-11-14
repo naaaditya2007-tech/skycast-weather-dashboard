@@ -21,9 +21,11 @@ body {
   color: #f8fafc;
   overflow-x: hidden;
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Frosted glass utility classes */
+/* Glassmorphism utility classes */
 .glass-panel {
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(24px);

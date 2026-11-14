@@ -2,37 +2,37 @@
 
 import React, { useState } from 'react';
 import { getWeatherInfo } from '../lib/weatherCodes';
-import { CloudRain, Sun, Moon, Cloud, Zap, Snowflake, Wind } from 'lucide-react';
+import { CloudRain, Sun, Moon, Cloud, Zap, Snowflake } from 'lucide-react';
 
 function WeatherIcon({ name, className = "w-6 h-6" }) {
   switch (name) {
     case 'sun':
-      return <Sun className={`${className} text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]`} />;
+      return <Sun className={`${className} text-amber-400`} />;
     case 'moon':
-      return <Moon className={`${className} text-cyan-200 drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]`} />;
+      return <Moon className={`${className} text-cyan-200`} />;
     case 'partly':
       return (
         <div className="relative inline-flex items-center justify-center">
-          <Sun className="w-4 h-4 text-amber-400 absolute -top-1 -right-1" />
-          <Cloud className={`${className} text-slate-200`} />
+          <Sun className="w-3.5 h-3.5 text-amber-400 absolute -top-1 -right-1" />
+          <Cloud className={`${className} text-white/80`} />
         </div>
       );
     case 'partly_night':
       return (
         <div className="relative inline-flex items-center justify-center">
-          <Moon className="w-3.5 h-3.5 text-cyan-300 absolute -top-1 -right-1" />
-          <Cloud className={`${className} text-slate-300`} />
+          <Moon className="w-3 h-3 text-cyan-200 absolute -top-1 -right-1" />
+          <Cloud className={`${className} text-white/70`} />
         </div>
       );
     case 'rain':
     case 'drizzle':
-      return <CloudRain className={`${className} text-sky-400 drop-shadow-[0_0_6px_rgba(56,189,248,0.4)]`} />;
+      return <CloudRain className={`${className} text-sky-400`} />;
     case 'thunder':
-      return <Zap className={`${className} text-amber-300 drop-shadow-[0_0_8px_rgba(252,211,77,0.7)]`} />;
+      return <Zap className={`${className} text-amber-300`} />;
     case 'snow':
-      return <Snowflake className={`${className} text-sky-100 drop-shadow-[0_0_6px_rgba(240,249,255,0.6)]`} />;
+      return <Snowflake className={`${className} text-sky-100`} />;
     default:
-      return <Cloud className={`${className} text-slate-300`} />;
+      return <Cloud className={`${className} text-white/80`} />;
   }
 }
 
@@ -53,20 +53,24 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
   const hourlyRains = (hourly.precipitation_probability || []).slice(0, 24);
   const hourlyIsDay = (hourly.is_day || []).slice(0, 24);
 
+  // Parse sunrise/sunset hour for accurate Day/Night icon validation
+  const sunriseHour = daily.sunrise?.[0] ? parseInt(daily.sunrise[0].split('T')[1].slice(0, 2), 10) : 6;
+  const sunsetHour = daily.sunset?.[0] ? parseInt(daily.sunset[0].split('T')[1].slice(0, 2), 10) : 18;
+
   // Compute SVG Spline Path for 24h temperature
   const minTemp = hourlyTemps.length ? Math.min(...hourlyTemps) - 1 : 0;
   const maxTemp = hourlyTemps.length ? Math.max(...hourlyTemps) + 1 : 40;
   const rangeTemp = Math.max(maxTemp - minTemp, 1);
 
   const chartW = 580;
-  const chartH = 90;
-  const paddingX = 24;
+  const chartH = 88;
+  const paddingX = 28;
   const paddingY = 16;
   const usableW = chartW - paddingX * 2;
   const usableH = chartH - paddingY * 2;
 
   const points = hourlyTemps.map((temp, i) => {
-    const x = paddingX + (i / (hourlyTemps.length - 1)) * usableW;
+    const x = paddingX + (i / Math.max(hourlyTemps.length - 1, 1)) * usableW;
     const y = paddingY + usableH - ((temp - minTemp) / rangeTemp) * usableH;
     return { x, y, temp, time: hourlyTimes[i] };
   });
@@ -90,7 +94,7 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
     }
   }
 
-  const areaD = pathD
+  const areaD = pathD && points.length > 0
     ? `${pathD} L ${points[points.length - 1].x} ${chartH} L ${points[0].x} ${chartH} Z`
     : '';
 
@@ -98,7 +102,7 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
   const maxPoint = points.reduce((prev, curr) => (curr.temp > prev.temp ? curr : prev), points[0] || {});
   const minPoint = points.reduce((prev, curr) => (curr.temp < prev.temp ? curr : prev), points[0] || {});
 
-  // Daily cards slice
+  // Daily cards slice for Week (7) vs 16 Days (16)
   const dailyCount = activeTab === 'Week' ? 7 : (activeTab === '16 Days' ? 16 : 0);
   const dailyTimes = (daily.time || []).slice(0, dailyCount);
   const dailyMaxs = (daily.temperature_2m_max || []).slice(0, dailyCount);
@@ -106,21 +110,27 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
   const dailyWmos = (daily.weather_code || []).slice(0, dailyCount);
   const dailyRains = (daily.precipitation_probability_max || []).slice(0, dailyCount);
 
+  // Global min/max across displayed days for proportional range bars
+  const overallMin = dailyMins.length ? Math.min(...dailyMins) : 15;
+  const overallMax = dailyMaxs.length ? Math.max(...dailyMaxs) : 35;
+  const overallRange = Math.max(overallMax - overallMin, 1);
+
   return (
-    <div className="backdrop-blur-xl bg-slate-900/40 border border-white/10 rounded-3xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden transition-all duration-300">
+    <div className="backdrop-blur-xl bg-slate-900/40 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between relative overflow-hidden transition-all duration-300">
       {/* Tabs Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/5">
-        <div className="flex items-center gap-2 p-1 rounded-2xl bg-slate-950/40 border border-white/5">
+      <div className="flex items-center justify-between pb-3.5 border-b border-white/10">
+        <div className="flex items-center gap-1.5 p-1 rounded-full bg-white/5 border border-white/10">
           {['Today', 'Week', '16 Days'].map((tab) => {
             const isActive = activeTab === tab;
             return (
               <button
                 key={tab}
+                type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 ${
+                className={`px-3.5 py-1 rounded-full text-xs font-medium tracking-normal transition-all duration-200 ${
                   isActive
-                    ? 'bg-sky-500 text-white shadow-[0_0_15px_rgba(14,165,233,0.5)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    ? 'bg-sky-500 text-white shadow-[0_0_12px_rgba(14,165,233,0.3)]'
+                    : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
               >
                 {tab}
@@ -128,20 +138,22 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
             );
           })}
         </div>
-        <span className="text-xs font-medium text-slate-400 hidden sm:inline-block">
-          {activeTab === 'Today' ? '24h Timeline' : `${dailyCount}-Day Forecast`}
+        <span className="text-xs font-normal text-white/50 hidden sm:inline-block">
+          {activeTab === 'Today' ? '24-Hour Timeline' : `${dailyCount}-Day Extended Forecast`}
         </span>
       </div>
 
-      {/* Hourly / Daily Mini Cards */}
-      <div className="my-4 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-2.5 min-w-max pb-1">
-          {activeTab === 'Today' &&
-            hourlyTimes.slice(0, 10).map((t, i) => {
+      {/* TODAY TAB: 24-Hour Scrollable Row with Night Moon Icons */}
+      {activeTab === 'Today' && (
+        <div className="my-4 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2.5 min-w-max pb-1">
+            {hourlyTimes.map((t, i) => {
               const dt = new Date(t);
               const hour = dt.getHours();
               const hourLabel = i === 0 ? 'Now' : `${hour.toString().padStart(2, '0')}:00`;
-              const isNightHour = hour < 6 || hour >= 18;
+
+              // Check if hour is nighttime: between sunset and sunrise
+              const isNightHour = hour < sunriseHour || hour >= sunsetHour;
               const isD = isNightHour ? 0 : (hourlyIsDay[i] !== undefined ? hourlyIsDay[i] : 1);
               const info = getWeatherInfo(hourlyWmo[i], isD);
               const rainProb = hourlyRains[i] || 0;
@@ -150,72 +162,42 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
               return (
                 <div
                   key={t}
-                  className="w-20 p-2.5 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center gap-1.5 hover:bg-white/[0.08] hover:border-sky-500/30 transition-all cursor-pointer group"
+                  className="w-20 p-2.5 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center gap-1.5 hover:bg-white/[0.08] hover:border-white/20 transition-all cursor-pointer group"
                   onMouseEnter={() => setHoverIndex(i)}
                   onMouseLeave={() => setHoverIndex(null)}
                 >
-                  <span className="text-[11px] font-semibold text-slate-300">{hourLabel}</span>
-                  <WeatherIcon name={info.icon} className="w-6 h-6 my-0.5" />
-                  <span className="text-xs font-bold text-white group-hover:text-sky-300 transition-colors">
+                  <span className="text-[11px] font-normal text-white/60">{hourLabel}</span>
+                  <WeatherIcon name={info.icon} className="w-5 h-5 my-0.5" />
+                  <span className="text-xs font-semibold text-white tabular-nums">
                     {tempVal}{tempSym}
                   </span>
                   {rainProb > 0 ? (
-                    <span className="text-[10px] font-medium text-sky-400 flex items-center gap-0.5">
+                    <span className="text-[10px] font-normal text-sky-400 flex items-center gap-0.5">
                       <CloudRain className="w-2.5 h-2.5" /> {rainProb}%
                     </span>
                   ) : (
-                    <span className="text-[10px] text-slate-500">--</span>
+                    <span className="text-[10px] text-white/30">—</span>
                   )}
                 </div>
               );
             })}
-
-          {(activeTab === 'Week' || activeTab === '16 Days') &&
-            dailyTimes.map((t, i) => {
-              const dt = new Date(t);
-              const dayLabel = i === 0 ? 'Today' : dt.toLocaleDateString('en-US', { weekday: 'short' });
-              const info = getWeatherInfo(dailyWmos[i], 1);
-              const rainProb = dailyRains[i] || 0;
-              const maxT = Math.round(dailyMaxs[i]);
-              const minT = Math.round(dailyMins[i]);
-
-              return (
-                <div
-                  key={t}
-                  className="w-24 p-2.5 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center gap-1.5 hover:bg-white/[0.08] hover:border-sky-500/30 transition-all"
-                >
-                  <span className="text-[11px] font-semibold text-slate-300">{dayLabel}</span>
-                  <WeatherIcon name={info.icon} className="w-6 h-6 my-0.5" />
-                  <div className="flex items-center gap-1 text-xs">
-                    <span className="font-bold text-white">{maxT}°</span>
-                    <span className="font-medium text-slate-400">{minT}°</span>
-                  </div>
-                  {rainProb > 0 ? (
-                    <span className="text-[10px] font-medium text-sky-400 flex items-center gap-0.5">
-                      <CloudRain className="w-2.5 h-2.5" /> {rainProb}%
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-slate-500">0%</span>
-                  )}
-                </div>
-              );
-            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Interactive 24-Hour Spline Chart (Rendered when 'Today' tab is active) */}
+      {/* TODAY TAB: Interactive 24-Hour Spline Chart */}
       {activeTab === 'Today' && (
         <div className="pt-2 border-t border-white/5 relative">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1 px-1">
+          <div className="flex items-center justify-between text-xs font-normal text-white/50 mb-1 px-1">
             <span>24h Temperature Curve</span>
             {hoverIndex !== null && points[hoverIndex] && (
-              <span className="text-sky-300 animate-pulse">
+              <span className="text-sky-300 font-medium">
                 {new Date(points[hoverIndex].time).toLocaleTimeString([], { hour: 'numeric' })}: {Math.round(points[hoverIndex].temp)}{tempSym}
               </span>
             )}
           </div>
 
-          <div className="relative w-full h-[95px]">
+          <div className="relative w-full h-[88px]">
             <svg
               viewBox={`0 0 ${chartW} ${chartH}`}
               className="w-full h-full overflow-visible"
@@ -223,64 +205,130 @@ export default function ForecastCard({ weatherData, tempUnit = 'celsius' }) {
             >
               <defs>
                 <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.45" />
+                  <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.35" />
                   <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.0" />
                 </linearGradient>
               </defs>
 
-              {/* Area Under Curve */}
               {areaD && <path d={areaD} fill="url(#curveGradient)" />}
 
-              {/* Baseline Grid */}
-              <line x1={paddingX} y1={chartH - 8} x2={chartW - paddingX} y2={chartH - 8} stroke="rgba(255,255,255,0.08)" strokeWidth="1" strokeDasharray="3 3" />
+              <line
+                x1={paddingX}
+                y1={chartH - 8}
+                x2={chartW - paddingX}
+                y2={chartH - 8}
+                stroke="rgba(255,255,255,0.08)"
+                strokeWidth="1"
+                strokeDasharray="3 3"
+              />
 
-              {/* Spline Path */}
               {pathD && (
                 <path
                   d={pathD}
                   fill="none"
                   stroke="#38bdf8"
-                  strokeWidth="2.5"
+                  strokeWidth="2"
                   strokeLinecap="round"
-                  className="filter drop-shadow-[0_0_8px_rgba(56,189,248,0.7)]"
                 />
               )}
 
-              {/* Max Temp Pin */}
               {maxPoint && (
                 <g>
-                  <circle cx={maxPoint.x} cy={maxPoint.y} r="3.5" fill="#fbbf24" stroke="#ffffff" strokeWidth="1.5" />
-                  <text x={maxPoint.x} y={maxPoint.y - 7} fill="#fbbf24" fontSize="10" fontWeight="bold" textAnchor="middle">
+                  <circle cx={maxPoint.x} cy={maxPoint.y} r="3" fill="#fbbf24" stroke="#ffffff" strokeWidth="1" />
+                  <text x={maxPoint.x} y={maxPoint.y - 6} fill="#fbbf24" fontSize="10" fontWeight="500" textAnchor="middle">
                     High {Math.round(maxPoint.temp)}{tempSym}
                   </text>
                 </g>
               )}
 
-              {/* Min Temp Pin */}
               {minPoint && (
                 <g>
-                  <circle cx={minPoint.x} cy={minPoint.y} r="3.5" fill="#38bdf8" stroke="#ffffff" strokeWidth="1.5" />
-                  <text x={minPoint.x} y={minPoint.y + 14} fill="#38bdf8" fontSize="10" fontWeight="bold" textAnchor="middle">
+                  <circle cx={minPoint.x} cy={minPoint.y} r="3" fill="#38bdf8" stroke="#ffffff" strokeWidth="1" />
+                  <text x={minPoint.x} y={minPoint.y + 13} fill="#38bdf8" fontSize="10" fontWeight="500" textAnchor="middle">
                     Low {Math.round(minPoint.temp)}{tempSym}
                   </text>
                 </g>
               )}
 
-              {/* Interactive Hover Nodes */}
               {points.map((pt, idx) => (
                 <circle
                   key={idx}
                   cx={pt.x}
                   cy={pt.y}
-                  r={hoverIndex === idx ? "5" : "3"}
+                  r={hoverIndex === idx ? "4" : "2"}
                   fill={hoverIndex === idx ? "#38bdf8" : "transparent"}
-                  className="cursor-pointer transition-all hover:stroke-white hover:stroke-2"
+                  className="cursor-pointer transition-all"
                   onMouseEnter={() => setHoverIndex(idx)}
                   onMouseLeave={() => setHoverIndex(null)}
                 />
               ))}
             </svg>
           </div>
+        </div>
+      )}
+
+      {/* WEEK & 16 DAYS TABS: Daily Forecast View with Range Bars */}
+      {(activeTab === 'Week' || activeTab === '16 Days') && (
+        <div className="my-2 flex flex-col gap-2 max-h-[220px] overflow-y-auto no-scrollbar pr-1">
+          {dailyTimes.map((t, i) => {
+            const dt = new Date(t);
+            const dayLabel = i === 0 ? 'Today' : dt.toLocaleDateString('en-US', { weekday: 'short' });
+            const dateStr = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const info = getWeatherInfo(dailyWmos[i], 1);
+            const rainProb = dailyRains[i] || 0;
+            const maxT = Math.round(dailyMaxs[i]);
+            const minT = Math.round(dailyMins[i]);
+
+            // Calculate percentage bar width and left offset
+            const leftPct = Math.max(0, ((minT - overallMin) / overallRange) * 100);
+            const widthPct = Math.max(8, ((maxT - minT) / overallRange) * 100);
+
+            return (
+              <div
+                key={t}
+                className="px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="w-24 shrink-0 flex flex-col">
+                  <span className="font-medium text-white">{dayLabel}</span>
+                  <span className="text-[10px] text-white/40">{dateStr}</span>
+                </div>
+
+                <div className="flex items-center gap-2 w-32 shrink-0">
+                  <WeatherIcon name={info.icon} className="w-4 h-4 shrink-0" />
+                  <span className="truncate text-white/70 text-[11px]">{info.label}</span>
+                </div>
+
+                <div className="w-12 text-right shrink-0">
+                  {rainProb > 0 ? (
+                    <span className="text-[11px] text-sky-400 font-normal">
+                      {rainProb}%
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-white/30">—</span>
+                  )}
+                </div>
+
+                {/* Min / Max Range Bar */}
+                <div className="flex-1 flex items-center gap-2 max-w-xs">
+                  <span className="w-6 text-right tabular-nums text-white/60 text-xs font-normal">
+                    {minT}°
+                  </span>
+                  <div className="flex-1 h-1.5 rounded-full bg-white/10 relative overflow-hidden">
+                    <div
+                      className="absolute h-full rounded-full bg-gradient-to-r from-sky-400 to-amber-300"
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${Math.min(widthPct, 100 - leftPct)}%`
+                      }}
+                    />
+                  </div>
+                  <span className="w-6 text-left tabular-nums text-white text-xs font-medium">
+                    {maxT}°
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

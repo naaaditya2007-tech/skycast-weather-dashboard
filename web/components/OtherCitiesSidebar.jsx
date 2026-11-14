@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Check, Trash2, MapPin } from 'lucide-react';
+import { Plus, Check, X, MapPin } from 'lucide-react';
 import { getWeatherInfo } from '../lib/weatherCodes';
 
 export default function OtherCitiesSidebar({
@@ -20,7 +20,7 @@ export default function OtherCitiesSidebar({
     (f) => f.name.toLowerCase() === (currentCity.name || '').toLowerCase()
   );
 
-  // Fetch weather for all favourite cities
+  // Fetch live weather for all favorite cities
   useEffect(() => {
     if (!favorites.length) {
       setCitiesData([]);
@@ -75,21 +75,21 @@ export default function OtherCitiesSidebar({
   }, [favorites, tempUnit]);
 
   return (
-    <div className="backdrop-blur-xl bg-slate-900/40 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between h-full">
+    <div className="backdrop-blur-xl bg-slate-900/40 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between h-full overflow-hidden">
       {/* Sidebar Header */}
       <div className="flex items-center justify-between pb-3.5 border-b border-white/10">
         <div>
-          <h3 className="text-base font-bold text-white tracking-wide">Other Cities</h3>
-          <p className="text-[11px] text-slate-400">Pinned Indian Metros & Favourites</p>
+          <h3 className="text-xs font-medium uppercase tracking-wider text-white/60">Other Cities</h3>
+          <p className="text-[11px] text-white/40 mt-0.5">Quick Switch & Favorites</p>
         </div>
 
         <button
           type="button"
           onClick={() => (isCurrentFav ? onRemoveFavorite(currentCity.name) : onAddFavorite(currentCity))}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md ${
+          className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm ${
             isCurrentFav
-              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
-              : 'bg-sky-500 text-white hover:bg-sky-400 shadow-[0_0_12px_rgba(14,165,233,0.4)]'
+              ? 'bg-white/10 text-white/90 border border-white/20 hover:bg-white/15'
+              : 'bg-sky-500 text-white hover:bg-sky-400 shadow-[0_0_12px_rgba(14,165,233,0.3)]'
           }`}
         >
           {isCurrentFav ? (
@@ -106,8 +106,8 @@ export default function OtherCitiesSidebar({
         </button>
       </div>
 
-      {/* Stacked Cards */}
-      <div className="my-4 flex flex-col gap-2.5 flex-1 overflow-y-auto no-scrollbar max-h-[500px]">
+      {/* Stacked Cards with guaranteed right padding & clipping fix */}
+      <div className="my-4 flex flex-col gap-2.5 flex-1 overflow-y-auto no-scrollbar max-h-[500px] pr-0.5">
         {citiesData.map((city, idx) => {
           const isSelected = (city.name || '').toLowerCase() === (currentCity.name || '').toLowerCase();
 
@@ -115,41 +115,42 @@ export default function OtherCitiesSidebar({
             <div
               key={city.name || idx}
               onClick={() => onSelectCity(city)}
-              className={`p-3.5 rounded-2xl border transition-all duration-200 cursor-pointer flex items-center justify-between relative group ${
+              className={`px-4 py-3 rounded-2xl border transition-all duration-200 cursor-pointer flex items-center justify-between relative group ${
                 isSelected
-                  ? 'bg-sky-500/15 border-sky-400/40 shadow-[0_0_15px_rgba(56,189,248,0.2)]'
-                  : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.07] hover:border-white/20'
+                  ? 'bg-white/15 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]'
+                  : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.08] hover:border-white/20'
               }`}
             >
-              <div className="flex flex-col gap-0.5 truncate pr-2">
-                <span className="text-[11px] font-medium text-slate-400 truncate">
+              <div className="flex flex-col gap-0.5 min-w-0 pr-3">
+                <span className="text-[11px] font-normal text-white/50 truncate">
                   {city.admin1 ? `${city.admin1}, ` : ''}{city.country || 'India'}
                 </span>
-                <span className="text-sm font-bold text-white group-hover:text-sky-300 transition-colors truncate">
+                <span className="text-sm font-semibold text-white truncate">
                   {city.name}
                 </span>
-                <span className="text-xs font-semibold text-sky-400 truncate">
+                <span className="text-xs font-normal text-white/70 truncate">
                   {city.condition || 'Clear'}
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0">
+              {/* Right Side: Temperature + Clear Delete Button (Never Clipped) */}
+              <div className="flex items-center gap-3 shrink-0 pl-1">
                 {city.temp !== null && (
-                  <span className="text-xl font-extrabold text-white">
-                    {city.temp}{tempSym}
+                  <span className="text-xl font-light text-white tabular-nums tracking-tight">
+                    {city.temp}<span className="text-sm font-normal text-white/60 ml-0.5">{tempSym}</span>
                   </span>
                 )}
 
                 <button
                   type="button"
-                  title="Remove city"
+                  title={`Remove ${city.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemoveFavorite(city.name);
                   }}
-                  className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-70 group-hover:opacity-100"
+                  className="w-6 h-6 rounded-lg text-white/40 hover:text-rose-400 hover:bg-rose-500/20 transition-all flex items-center justify-center shrink-0"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -157,16 +158,16 @@ export default function OtherCitiesSidebar({
         })}
 
         {!citiesData.length && !loading && (
-          <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400 gap-2">
-            <MapPin className="w-8 h-8 text-slate-600" />
-            <p className="text-xs">No favourite cities pinned yet.</p>
-            <p className="text-[11px] text-slate-500">Click &apos;+ Add Fav&apos; above to save the current city.</p>
+          <div className="flex flex-col items-center justify-center p-8 text-center text-white/40 gap-2">
+            <MapPin className="w-8 h-8 text-white/20" />
+            <p className="text-xs">No favorite cities pinned.</p>
+            <p className="text-[11px] text-white/40">Click &apos;+ Add Fav&apos; to pin current location.</p>
           </div>
         )}
       </div>
 
-      <div className="pt-2 text-center text-[11px] text-slate-500 border-t border-white/5">
-        Click any card to switch cities instantly
+      <div className="pt-2 text-center text-[11px] text-white/40 border-t border-white/5">
+        Click any city to switch view
       </div>
     </div>
   );

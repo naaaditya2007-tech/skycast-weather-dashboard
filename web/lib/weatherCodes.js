@@ -44,6 +44,28 @@ export function getWeatherInfo(wmoCode, isDay = 1) {
   };
 }
 
+export function calculateAqiFromPm25(pm25) {
+  const c = Math.max(0, Number(pm25) || 0);
+  const breakpoints = [
+    { cLow: 0.0, cHigh: 12.0, iLow: 0, iHigh: 50 },
+    { cLow: 12.1, cHigh: 35.4, iLow: 51, iHigh: 100 },
+    { cLow: 35.5, cHigh: 55.4, iLow: 101, iHigh: 150 },
+    { cLow: 55.5, cHigh: 150.4, iLow: 151, iHigh: 200 },
+    { cLow: 150.5, cHigh: 250.4, iLow: 201, iHigh: 300 },
+    { cLow: 250.5, cHigh: 350.4, iLow: 301, iHigh: 400 },
+    { cLow: 350.5, cHigh: 500.4, iLow: 401, iHigh: 500 }
+  ];
+
+  for (const b of breakpoints) {
+    if (c >= b.cLow && c <= b.cHigh) {
+      return Math.round(((b.iHigh - b.iLow) / (b.cHigh - b.cLow)) * (c - b.cLow) + b.iLow);
+    }
+  }
+
+  if (c > 500.4) return 500;
+  return Math.round(c * 3.5);
+}
+
 export function getAqiCategory(aqi) {
   const val = Number(aqi) || 0;
   if (val <= 50) return { label: "Good", color: "#10b981", badge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" };

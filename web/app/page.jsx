@@ -10,15 +10,8 @@ import OtherCitiesSidebar from '../components/OtherCitiesSidebar';
 import SearchBar from '../components/SearchBar';
 import SettingsModal from '../components/SettingsModal';
 import { getWeatherInfo, DEFAULT_INDIAN_FAVORITES } from '../lib/weatherCodes';
-import { CloudSun, RefreshCw, Sliders, LocateFixed, AlertCircle } from 'lucide-react';
-
-const CHENNAI_DEFAULT = {
-  name: 'Chennai',
-  admin1: 'Tamil Nadu',
-  country: 'India',
-  latitude: 13.0827,
-  longitude: 80.2707
-};
+import { resolveUserLocation, CHENNAI_DEFAULT } from '../lib/location';
+import { CloudSun, RefreshCw, Sliders, LocateFixed, Loader2, AlertCircle } from 'lucide-react';
 
 export default function Home() {
   const [currentCity, setCurrentCity] = useState(CHENNAI_DEFAULT);
@@ -28,15 +21,27 @@ export default function Home() {
   const [tempUnit, setTempUnit] = useState('celsius');
   const [windUnit, setWindUnit] = useState('kmh');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [customTheme, setCustomTheme] = useState(null); // For F2 theme previews
+  const [customTheme, setCustomTheme] = useState(null);
 
-  // Load saved preferences from LocalStorage
+  // Auto User Location Detection on Startup
   useEffect(() => {
+    let isMounted = true;
+
     try {
       const savedCity = localStorage.getItem('skycast_city');
-      if (savedCity) setCurrentCity(JSON.parse(savedCity));
+      if (savedCity) {
+        setCurrentCity(JSON.parse(savedCity));
+      } else {
+        // Automatic location detection chain (GPS -> IP -> Chennai default)
+        resolveUserLocation().then((loc) => {
+          if (isMounted && loc) {
+            setCurrentCity(loc);
+          }
+        });
+      }
 
       const savedFavs = localStorage.getItem('skycast_favs');
       if (savedFavs) setFavorites(JSON.parse(savedFavs));
@@ -47,8 +52,12 @@ export default function Home() {
       const savedWind = localStorage.getItem('skycast_wind');
       if (savedWind) setWindUnit(savedWind);
     } catch (e) {
-      // Ignore
+      // Fallback already defaulted to Chennai
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Fetch live weather data from Open-Meteo REST APIs
@@ -81,7 +90,7 @@ export default function Home() {
           setAqiData(aqiJson);
         }
       } catch (err) {
-        setErrorMessage('Failed to connect to weather service. Please check your internet connection.');
+        setErrorMessage('Failed to connect to weather service. Please check your connection.');
       } finally {
         setIsLoading(false);
       }
@@ -159,44 +168,20 @@ export default function Home() {
     }
   };
 
-  // Geolocation lookup
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
-    }
-    setIsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        try {
-          const res = await fetch(
-            `https://geocoding-api.open-meteo.com/v1/search?name=${lat.toFixed(2)},${lon.toFixed(2)}&count=1&language=en&format=json`
-          );
-          const data = await res.json();
-          const first = data.results?.[0];
-          const newCity = {
-            name: first?.name || 'My Location',
-            admin1: first?.admin1 || '',
-            country: first?.country || '',
-            latitude: lat,
-            longitude: lon
-          };
-          handleSelectCity(newCity);
-        } catch (e) {
-          handleSelectCity({
-            name: 'My Location',
-            latitude: lat,
-            longitude: lon
-          });
-        }
-      },
-      () => {
-        setIsLoading(false);
-        alert('Unable to retrieve your location');
+  // On-Demand Geolocation Button Trigger
+  const handleLocateClick = async () => {
+    setIsLocating(true);
+    setErrorMessage(null);
+    try {
+      const loc = await resolveUserLocation();
+      if (loc) {
+        handleSelectCity(loc);
       }
-    );
+    } catch (e) {
+      // Graceful fallback without crashing
+    } finally {
+      setIsLocating(false);
+    }
   };
 
   // Determine active visual theme (Live or Preset)
@@ -217,53 +202,53 @@ export default function Home() {
       <div className="relative z-10 max-w-7xl mx-auto w-full flex flex-col gap-5 sm:gap-6">
         {/* Top Navigation Bar */}
         <header className="backdrop-blur-xl bg-slate-900/40 border border-white/10 rounded-3xl p-3 sm:p-4 shadow-2xl flex items-center justify-between gap-3 flex-wrap">
-          {/* Logo & Brand */}
+          {/* Logo & Brand (Clean, Natural Apple/Google-Grade Typography) */}
           <div className="flex items-center gap-2.5 pl-1 sm:pl-2">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-400 to-amber-300 p-0.5 shadow-[0_0_20px_rgba(56,189,248,0.4)] flex items-center justify-center">
-              <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-                <CloudSun className="w-6 h-6 text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
-              </div>
+            <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
+              <CloudSun className="w-5 h-5 text-amber-300" />
             </div>
             <div>
-              <h1 className="text-lg font-black tracking-tight text-white leading-tight flex items-center gap-1.5">
+              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">
                 SkyCast
-                <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                  Next-Gen
-                </span>
               </h1>
-              <p className="text-[11px] font-medium text-slate-400 hidden sm:block">
-                Atmospheric Weather Intelligence
+              <p className="text-[11px] font-normal text-white/50 hidden sm:block">
+                Live Weather & Forecast
               </p>
             </div>
           </div>
 
           {/* Autocomplete Search Bar */}
           <div className="flex-1 max-w-md mx-auto order-3 sm:order-2 w-full sm:w-auto">
-            <SearchBar onSelectCity={handleSelectCity} onUseMyLocation={handleUseMyLocation} />
+            <SearchBar onSelectCity={handleSelectCity} />
           </div>
 
           {/* Actions & Controls */}
           <div className="flex items-center gap-2 sm:gap-2.5 order-2 sm:order-3">
-            {/* Geolocation Button */}
+            {/* Locate Button with Live Loading State */}
             <button
               type="button"
-              onClick={handleUseMyLocation}
-              title="Use current location"
-              className="p-2 sm:px-3 sm:py-2 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all flex items-center gap-1.5 text-xs font-semibold"
+              onClick={handleLocateClick}
+              disabled={isLocating}
+              title="Locate current position"
+              className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all flex items-center gap-1.5 text-xs font-medium"
             >
-              <LocateFixed className="w-4 h-4 text-sky-400" />
-              <span className="hidden md:inline">Locate</span>
+              {isLocating ? (
+                <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin" />
+              ) : (
+                <LocateFixed className="w-3.5 h-3.5 text-sky-400" />
+              )}
+              <span className="hidden sm:inline">Locate</span>
             </button>
 
             {/* Quick Unit Toggle */}
-            <div className="flex items-center p-0.5 rounded-2xl bg-slate-950/40 border border-white/10">
+            <div className="flex items-center p-0.5 rounded-full bg-white/5 border border-white/10">
               <button
                 type="button"
                 onClick={() => handleToggleTemp('celsius')}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
                   tempUnit === 'celsius'
-                    ? 'bg-sky-500 text-white shadow-[0_0_10px_rgba(14,165,233,0.4)]'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-sky-500 text-white shadow-sm'
+                    : 'text-white/60 hover:text-white'
                 }`}
               >
                 °C
@@ -271,10 +256,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => handleToggleTemp('fahrenheit')}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
                   tempUnit === 'fahrenheit'
-                    ? 'bg-sky-500 text-white shadow-[0_0_10px_rgba(14,165,233,0.4)]'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-sky-500 text-white shadow-sm'
+                    : 'text-white/60 hover:text-white'
                 }`}
               >
                 °F
@@ -286,7 +271,7 @@ export default function Home() {
               type="button"
               onClick={() => fetchWeather(currentCity.latitude, currentCity.longitude)}
               title="Refresh weather data"
-              className="p-2 sm:p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-sky-400 hover:text-sky-300 transition-all group"
+              className="p-2 sm:p-2.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all group"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-sky-400' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
             </button>
@@ -295,29 +280,30 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              title="Weather themes & settings"
-              className="p-2 sm:p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all"
+              title="Settings & display options"
+              className="p-2 sm:p-2.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all"
             >
-              <Sliders className="w-4 h-4 text-sky-400" />
+              <Sliders className="w-4 h-4" />
             </button>
           </div>
         </header>
 
         {/* Error Notification Banner */}
         {errorMessage && (
-          <div className="backdrop-blur-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 px-4 py-3 rounded-2xl text-xs sm:text-sm font-semibold flex items-center gap-2 shadow-lg animate-in fade-in">
+          <div className="backdrop-blur-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 px-4 py-3 rounded-2xl text-xs sm:text-sm font-medium flex items-center gap-2 shadow-lg animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{errorMessage}</span>
           </div>
         )}
 
-        {/* Custom Theme Indicator Pill (if preview active) */}
+        {/* Custom Theme Indicator (if preview active) */}
         {customTheme && (
-          <div className="self-center px-4 py-1.5 rounded-full bg-sky-500/20 border border-sky-400/30 text-sky-300 text-xs font-bold flex items-center gap-2 backdrop-blur-md shadow-[0_0_15px_rgba(56,189,248,0.3)]">
-            <span>🎮 Atmospheric Preview: {customTheme.label}</span>
+          <div className="self-center px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-white/90 text-xs font-medium flex items-center gap-2 backdrop-blur-md">
+            <span>Preview Mode: {customTheme.label}</span>
             <button
+              type="button"
               onClick={() => setCustomTheme(null)}
-              className="ml-2 underline text-white hover:text-sky-200"
+              className="ml-1 text-sky-300 hover:text-white underline text-xs"
             >
               Reset Live
             </button>
@@ -387,11 +373,6 @@ export default function Home() {
         onResetFavorites={handleResetFavorites}
         isCustomThemeActive={Boolean(customTheme)}
       />
-
-      {/* Footer */}
-      <footer className="relative z-10 text-center py-4 text-xs text-slate-500 font-medium">
-        Powered by <a href="https://open-meteo.com" target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">Open-Meteo</a> APIs • Built with Next.js 14, Tailwind CSS & 60 FPS Canvas Graphics
-      </footer>
     </main>
   );
 }
