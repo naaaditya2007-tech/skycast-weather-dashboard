@@ -1,12 +1,18 @@
 # ✦ SkyCast — Real-Time Weather Application
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14%2B%20App%20Router-black?logo=next.js&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-Live%20Deployment-black?logo=vercel&logoColor=white)
 ![GUI](https://img.shields.io/badge/Desktop-Tkinter%20%2B%20Pillow-blue)
 ![API](https://img.shields.io/badge/API-Open--Meteo%20(Keyless)-007ACC)
 ![Architecture](https://img.shields.io/badge/Architecture-Multithreaded%20Glassmorphism-purple)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-A premium, atmospheric desktop weather intelligence application developed in **Python** using standard library **Tkinter** and **Pillow**. Designed with frosted glassmorphism, non-blocking 30 FPS particle animations, thread-safe asynchronous API streaming, interactive popover controls, and keyless data integration.
+A premium, atmospheric dual-platform weather intelligence application featuring:
+1. **Desktop Client**: Native Python standard library **Tkinter** and **Pillow** with custom canvas glassmorphism, 30 FPS particle engine, and threaded Open-Meteo REST API.
+2. **Web Mirror**: Next-generation **Next.js 14 (App Router) + React + Tailwind CSS** live web application deployed to **Vercel** with real-time 60 FPS HTML5 canvas weather particles, CSS backdrop-filter blur, interactive SVG spline temperature charts, and Indian city localization.
+
+🌐 **Live Vercel Web Deployment**: [https://web-mocha-ten-79.vercel.app](https://web-mocha-ten-79.vercel.app)
 
 ---
 
@@ -60,9 +66,34 @@ RealTimeWeatherApp/
 ├── shared/
 │   ├── __init__.py
 │   └── weather_codes.py        # WMO weather codes, theme palettes & AQI mapping
+├── web/                        # Next.js 14 App Router Web Mirror (Vercel Live)
+│   ├── app/                    # App router (layout, globals.css, page)
+│   ├── components/             # React weather components & 60 FPS HTML5 Canvas engine
+│   ├── lib/                    # Weather code mappings & default Indian favorites
+│   ├── next.config.js          # Next.js configuration
+│   └── tailwind.config.js      # Custom glassmorphic design system
 ├── requirements.txt            # Python dependencies (Pillow, requests)
-├── .gitignore                  # Git exclusions (__pycache__, .venv, settings.json)
+├── package.json                # Web monorepo scripts
+├── vercel.json                 # Vercel deployment specification
+├── .gitignore                  # Git exclusions (__pycache__, .venv, .next, out)
 └── README.md                   # Project documentation
+```
+
+---
+
+## 🌐 Live Web Version (Next.js 14 on Vercel)
+
+Experience SkyCast directly in any modern browser with hardware-accelerated 60 FPS canvas atmospheric particles and true CSS backdrop-blur:
+
+- **Live URL**: [https://web-mocha-ten-79.vercel.app](https://web-mocha-ten-79.vercel.app)
+- **Features**: Live Open-Meteo REST API, interactive 24h bezier spline chart, multi-day forecast tabs, instant geocoding autocomplete, and Indian favorites sidebar.
+
+To run the web version locally:
+```bash
+cd web
+npm install
+npm run dev
+# Open http://localhost:3000
 ```
 
 ---

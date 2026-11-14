@@ -20,6 +20,8 @@ ENV/
 # Node / Web / Vercel
 node_modules/
 .vercel/
+.next/
+out/
 npm-debug.log*
 
 # Environment & Secrets (Strict policy: no secrets in repo)
